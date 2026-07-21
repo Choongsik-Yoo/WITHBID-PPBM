@@ -11,6 +11,7 @@ import { buildOpalBundle } from "./lib/opal.js";
 import { analyzeBid, extractNotice, redactSettings, reportToMarkdown } from "./lib/openai.js";
 import { extractNoticeNumber, fetchNoticePage } from "./lib/web-source.js";
 import { attachmentName, attachmentUrl, fetchG2bNotice, g2bToText, parseG2bLink } from "./lib/g2b.js";
+import { quoteWorkbookBuffer, reportToDashboardHtml } from "./lib/result-artifacts.js";
 
 const config = getConfig();
 const appRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -111,8 +112,10 @@ const server = http.createServer(async (request, response) => {
       const report = await analyzeBid({settings,extraction,priceCandidates,certifications:String(input.certifications||""),targetMargin:Number(input.targetMargin||12)});
       await writeJson(path.join(base,"06_분석결과","AI_판단결과.json"),report);
       const reportPath=path.join(base,"06_분석결과","참가판단리포트.md"); await fs.writeFile(reportPath,reportToMarkdown(notice,report),"utf8");
+      const dashboardPath=path.join(base,"06_분석결과","입찰참가판단_대시보드.html"); await fs.writeFile(dashboardPath,reportToDashboardHtml(notice,report,extraction),"utf8");
+      const quotePath=path.join(base,"06_분석결과","견적서.xlsx"); await fs.writeFile(quotePath,Buffer.from(await quoteWorkbookBuffer(notice,report,extraction,Number(input.targetMargin||12))));
       notice.status="분석완료"; notice.analyzedAt=new Date().toISOString(); await saveState(state);
-      return json(response,200,{notice,report,reportPath});
+      return json(response,200,{notice,report,reportPath,dashboardPath,quotePath});
     }
     if (request.method === "POST" && url.pathname === "/api/notices") {
       const notice = await createNotice(config.dataRoot, await bodyJson(request));
