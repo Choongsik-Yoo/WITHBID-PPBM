@@ -12,10 +12,12 @@ import { analyzeBid, extractNotice, findExternalPrices, redactSettings, reportTo
 import { extractNoticeNumber, fetchNoticePage } from "./lib/web-source.js";
 import { attachmentName, attachmentUrl, fetchG2bNotice, g2bToText, parseG2bLink } from "./lib/g2b.js";
 import { quoteWorkbookBuffer, reportToDashboardHtml } from "./lib/result-artifacts.js";
+import { convertHancomAttachments } from "./lib/hancom.js";
 
 const config = getConfig();
 const appRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const publicRoot = path.join(appRoot, "public");
+const hancomConverterScript=path.join(appRoot,"scripts","convert-hancom-to-pdf.ps1");
 const stateFile = path.join(config.dataRoot, "_데이터베이스", "app-state.json");
 const openaiSettingsFile = path.join(config.dataRoot, "_설정", "openai.json");
 const g2bSettingsFile = path.join(config.dataRoot, "_설정", "g2b.json");
@@ -101,12 +103,15 @@ const server = http.createServer(async (request, response) => {
       let sourceText, official=null, finalUrl=sourceUrl, downloadedFiles=[];
       if (/g2b\.go\.kr/i.test(sourceUrl)) { if(!g2bSettings.apiKey) throw new Error("설정에서 공공데이터포털 나라장터 API 키를 먼저 등록해 주세요."); const ids=parseG2bLink(sourceUrl); official=await fetchG2bNotice({apiKey:g2bSettings.apiKey,...ids}); sourceText=g2bToText(official); for(const [index,item] of official.attachments.entries()){const url=attachmentUrl(item);if(!url)continue;try{const response=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0 Chrome/138.0"}});if(response.ok)downloadedFiles.push({filename:safeName(attachmentName(item,index),100),buffer:Buffer.from(await response.arrayBuffer())});}catch{}} }
       else { const page=await fetchNoticePage(sourceUrl); sourceText=page.text; finalUrl=page.finalUrl; }
+      const hancomConversion=await convertHancomAttachments(downloadedFiles,{scriptPath:hancomConverterScript});
+      downloadedFiles.push(...hancomConversion.converted);
+      if(hancomConversion.errors.length&&!downloadedFiles.some(file=>/\.pdf$/i.test(file.filename)))throw new Error(`HWP/HWPX PDF 변환 실패: ${hancomConversion.errors.map(item=>`${item.filename} (${item.error})`).join(", ")}`);
       const extraction = await extractNotice({ settings, sourceText, files:downloadedFiles });
       const state = await loadState(); const number=extraction.noticeNumber || extractNoticeNumber(sourceUrl) || `AUTO-${Date.now()}`;
       let notice=state.notices.find(item=>item.noticeNumber===number); if(!notice){notice=await createNotice(config.dataRoot,{noticeNumber:number,title:extraction.title||"공고명 확인 필요",organization:extraction.organization||"",deadline:extraction.deadline||"0000-00-00",sourceUrl:finalUrl});state.notices.unshift(notice);}
       const base = path.join(config.dataRoot, "진행중", notice.folderName);
       await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),sourceText,"utf8");
-      if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); for(const file of downloadedFiles) await fs.writeFile(path.join(base,"02_첨부파일",file.filename),file.buffer); }
+      if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); await writeJson(path.join(base,"04_구조화데이터","한컴문서_변환결과.json"),{converted:hancomConversion.converted.map(file=>({filename:file.filename,convertedFrom:file.convertedFrom,size:file.buffer.length})),errors:hancomConversion.errors,convertedAt:new Date().toISOString()}); for(const file of downloadedFiles) await fs.writeFile(path.join(base,"02_첨부파일",file.filename),file.buffer); }
       await writeJson(path.join(base,"04_구조화데이터","AI_추출결과.json"),extraction);
       const companyByRequirement=extraction.requirements.map(requirement=>({requirement,matches:rankCompanyPrices(state.priceList.items,{category:requirement.category,model:requirement.condition}).filter(item=>item.unitPrice>0).slice(0,3)}));
       const priceCandidates=companyByRequirement.flatMap(({requirement,matches})=>matches.map(item=>({requirement,model:item.model,unitPrice:item.unitPrice,source:"company_price_list",sourceUrl:null,stock:item.stock,checkedAt:state.priceList.importedAt})));
