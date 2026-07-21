@@ -1,5 +1,5 @@
 const BASE = "https://apis.data.go.kr/1230000/ad/BidPublicInfoService";
-const DETAIL_OPERATIONS = ["getBidPblancListInfoThngPPSSrch","getBidPblancListInfoServcPPSSrch","getBidPblancListInfoCnstwkPPSSrch","getBidPblancListInfoFrgcptPPSSrch","getBidPblancListInfoEtcPPSSrch"];
+const DETAIL_OPERATIONS = ["getBidPblancListInfoThng","getBidPblancListInfoServc","getBidPblancListInfoCnstwk","getBidPblancListInfoFrgcpt","getBidPblancListInfoEtc"];
 
 export function parseG2bLink(value) {
   const url=new URL(value); return { bidPbancNo:url.searchParams.get("bidPbancNo")||"", bidPbancOrd:url.searchParams.get("bidPbancOrd")||"000" };
@@ -9,9 +9,10 @@ async function query(operation, key, params, fetchImpl) { const url=new URL(`${B
 
 export async function fetchG2bNotice({apiKey,bidPbancNo,bidPbancOrd="000",fetchImpl=fetch}) {
   let detail=[];
-  for(const operation of DETAIL_OPERATIONS) { detail=await query(operation,apiKey,{bidPbancNo,bidPbancOrd},fetchImpl); if(detail.length) break; }
+  for(const operation of DETAIL_OPERATIONS) { detail=await query(operation,apiKey,{inqryDiv:"2",bidNtceNo:bidPbancNo},fetchImpl); detail=detail.filter(item=>!item.bidNtceOrd||String(item.bidNtceOrd)===String(bidPbancOrd)); if(detail.length) break; }
   if(!detail.length) throw new Error("공식 API에서 공고 정보를 찾지 못했습니다. API 활용신청 상태와 공고번호를 확인하세요.");
-  let attachments=[]; try { attachments=await query("getBidPblancListInfoEorderAtchFileInfo",apiKey,{bidPbancNo,bidPbancOrd},fetchImpl); } catch { attachments=[]; }
+  let attachments=[]; try { attachments=await query("getBidPblancListInfoEorderAtchFileInfo",apiKey,{inqryDiv:"2",bidNtceNo:bidPbancNo},fetchImpl); attachments=attachments.filter(item=>!item.bidNtceOrd||String(item.bidNtceOrd)===String(bidPbancOrd)); } catch { attachments=[]; }
+  for(let index=1;index<=10;index+=1) { const url=detail[0][`ntceSpecDocUrl${index}`]; if(url&&!attachments.some(item=>attachmentUrl(item)===url)) attachments.push({ atchFileUrl:url, atchFileNm:detail[0][`ntceSpecFileNm${index}`]||`첨부파일_${index}` }); }
   return { detail:detail[0], attachments };
 }
 

@@ -58,7 +58,7 @@ async function serveStatic(request, response) {
   try {
     const content = await fs.readFile(target);
     const type = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml" }[path.extname(target)] || "application/octet-stream";
-    response.writeHead(200, { "Content-Type": type });
+    response.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store, max-age=0" });
     response.end(content);
     return true;
   } catch (error) {
@@ -97,15 +97,15 @@ const server = http.createServer(async (request, response) => {
       const g2bSettings = await readJson(g2bSettingsFile, {});
       if (!settings.apiKey) throw new Error("설정에서 OpenAI API 키를 먼저 등록해 주세요.");
       const sourceUrl = String(input.sourceUrl || "").trim();
-      let sourceText, official=null, finalUrl=sourceUrl;
-      if (/g2b\.go\.kr/i.test(sourceUrl)) { if(!g2bSettings.apiKey) throw new Error("설정에서 공공데이터포털 나라장터 API 키를 먼저 등록해 주세요."); const ids=parseG2bLink(sourceUrl); official=await fetchG2bNotice({apiKey:g2bSettings.apiKey,...ids}); sourceText=g2bToText(official); }
+      let sourceText, official=null, finalUrl=sourceUrl, downloadedFiles=[];
+      if (/g2b\.go\.kr/i.test(sourceUrl)) { if(!g2bSettings.apiKey) throw new Error("설정에서 공공데이터포털 나라장터 API 키를 먼저 등록해 주세요."); const ids=parseG2bLink(sourceUrl); official=await fetchG2bNotice({apiKey:g2bSettings.apiKey,...ids}); sourceText=g2bToText(official); for(const [index,item] of official.attachments.entries()){const url=attachmentUrl(item);if(!url)continue;try{const response=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0 Chrome/138.0"}});if(response.ok)downloadedFiles.push({filename:safeName(attachmentName(item,index),100),buffer:Buffer.from(await response.arrayBuffer())});}catch{}} }
       else { const page=await fetchNoticePage(sourceUrl); sourceText=page.text; finalUrl=page.finalUrl; }
-      const extraction = await extractNotice({ settings, sourceText });
-      const notice = await createNotice(config.dataRoot, { noticeNumber:extraction.noticeNumber || extractNoticeNumber(sourceUrl) || `AUTO-${Date.now()}`, title:extraction.title || "공고명 확인 필요", organization:extraction.organization || "", deadline:extraction.deadline || "0000-00-00", sourceUrl:finalUrl });
-      const state = await loadState(); state.notices.unshift(notice);
+      const extraction = await extractNotice({ settings, sourceText, files:downloadedFiles });
+      const state = await loadState(); const number=extraction.noticeNumber || extractNoticeNumber(sourceUrl) || `AUTO-${Date.now()}`;
+      let notice=state.notices.find(item=>item.noticeNumber===number); if(!notice){notice=await createNotice(config.dataRoot,{noticeNumber:number,title:extraction.title||"공고명 확인 필요",organization:extraction.organization||"",deadline:extraction.deadline||"0000-00-00",sourceUrl:finalUrl});state.notices.unshift(notice);}
       const base = path.join(config.dataRoot, "진행중", notice.folderName);
       await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),sourceText,"utf8");
-      if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); for(const [index,item] of official.attachments.entries()) { const download=attachmentUrl(item); if(!download) continue; try { const response=await fetch(download); if(response.ok) await fs.writeFile(path.join(base,"02_첨부파일",safeName(attachmentName(item,index),100)),Buffer.from(await response.arrayBuffer())); } catch {} } }
+      if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); for(const file of downloadedFiles) await fs.writeFile(path.join(base,"02_첨부파일",file.filename),file.buffer); }
       await writeJson(path.join(base,"04_구조화데이터","AI_추출결과.json"),extraction);
       const priceCandidates = extraction.requirements.flatMap(r => rankCompanyPrices(state.priceList.items,{category:r.category,model:r.condition}).slice(0,3).map(i=>({requirement:r,model:i.model,unitPrice:i.unitPrice,source:"company_price_list",stock:i.stock})));
       const report = await analyzeBid({settings,extraction,priceCandidates,certifications:String(input.certifications||""),targetMargin:Number(input.targetMargin||12)});
