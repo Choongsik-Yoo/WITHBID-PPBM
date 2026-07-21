@@ -7,4 +7,5 @@ data/
 dist/
 coverage/
 company_price_list*
+openai.json
 !samples/company_price_list_sample.csv

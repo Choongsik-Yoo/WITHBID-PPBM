@@ -39,6 +39,15 @@ async function refresh() {
   }
 }
 
+async function loadOpenAISettings() {
+  try {
+    const settings = await api("/api/settings/openai");
+    $("#keyStatus").textContent = settings.configured ? `등록됨 (${settings.keyHint})` : "등록되지 않음";
+    $("#openaiSettingsForm").elements.extractionModel.value = settings.extractionModel;
+    $("#openaiSettingsForm").elements.analysisModel.value = settings.analysisModel;
+  } catch (error) { toast(error.message, true); }
+}
+
 function escapeHtml(value) {
   const div = document.createElement("div");
   div.textContent = value ?? "";
@@ -106,4 +115,21 @@ $("#opalResultForm").addEventListener("submit", async (event) => {
   } catch (error) { toast(error.message, true); }
 });
 
-refresh();
+$("#openaiSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const result = await api("/api/settings/openai", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(formObject(event.currentTarget)) });
+    event.currentTarget.elements.apiKey.value = "";
+    $("#keyStatus").textContent = `등록됨 (${result.keyHint})`;
+    toast("OpenAI API 설정을 저장했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#autoAnalyzeForm").addEventListener("submit", async (event) => {
+  event.preventDefault(); const status=$("#automationStatus"); const button=event.currentTarget.querySelector("button");
+  status.textContent="공고 페이지 수집 및 AI 분석 중입니다. 창을 닫지 마세요."; button.disabled=true;
+  try { const result=await api("/api/automation/analyze-link",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(event.currentTarget))}); status.textContent=`${result.report.decision}: ${result.report.summary} — 저장 완료`; event.currentTarget.reset(); await refresh(); toast("자동 분석을 완료했습니다."); }
+  catch(error){ status.textContent=error.message; toast(error.message,true); } finally { button.disabled=false; }
+});
+
+refresh(); loadOpenAISettings();
