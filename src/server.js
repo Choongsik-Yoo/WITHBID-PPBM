@@ -8,7 +8,7 @@ import { parsePriceList } from "./lib/price-list.js";
 import { buildExternalSearches, rankCompanyPrices } from "./lib/pricing.js";
 import { createNotice } from "./lib/notices.js";
 import { buildOpalBundle } from "./lib/opal.js";
-import { analyzeBid, extractNotice, redactSettings, reportToMarkdown } from "./lib/openai.js";
+import { analyzeBid, extractNotice, findExternalPrices, redactSettings, reportToMarkdown } from "./lib/openai.js";
 import { extractNoticeNumber, fetchNoticePage } from "./lib/web-source.js";
 import { attachmentName, attachmentUrl, fetchG2bNotice, g2bToText, parseG2bLink } from "./lib/g2b.js";
 import { quoteWorkbookBuffer, reportToDashboardHtml } from "./lib/result-artifacts.js";
@@ -108,7 +108,12 @@ const server = http.createServer(async (request, response) => {
       await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),sourceText,"utf8");
       if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); for(const file of downloadedFiles) await fs.writeFile(path.join(base,"02_첨부파일",file.filename),file.buffer); }
       await writeJson(path.join(base,"04_구조화데이터","AI_추출결과.json"),extraction);
-      const priceCandidates = extraction.requirements.flatMap(r => rankCompanyPrices(state.priceList.items,{category:r.category,model:r.condition}).slice(0,3).map(i=>({requirement:r,model:i.model,unitPrice:i.unitPrice,source:"company_price_list",stock:i.stock})));
+      const companyByRequirement=extraction.requirements.map(requirement=>({requirement,matches:rankCompanyPrices(state.priceList.items,{category:requirement.category,model:requirement.condition}).filter(item=>item.unitPrice>0).slice(0,3)}));
+      const priceCandidates=companyByRequirement.flatMap(({requirement,matches})=>matches.map(item=>({requirement,model:item.model,unitPrice:item.unitPrice,source:"company_price_list",sourceUrl:null,stock:item.stock,checkedAt:state.priceList.importedAt})));
+      const unresolved=companyByRequirement.filter(({requirement,matches})=>requirement.quantity&&matches.length===0).map(({requirement})=>({category:requirement.category,model:requirement.condition,quantity:requirement.quantity}));
+      const externalPrices=await findExternalPrices({settings,requirements:unresolved});
+      priceCandidates.push(...externalPrices.map(item=>({requirement:{category:item.category,condition:item.requestedModel},model:item.matchedModel,unitPrice:item.unitPrice,source:item.sourceName,sourceUrl:item.sourceUrl,stock:"웹 판매 페이지 확인",checkedAt:item.checkedAt,confidence:item.confidence,status:item.status})));
+      await writeJson(path.join(base,"05_가격근거","가격조사결과.json"),{companyPriceList:priceCandidates.filter(item=>item.source==="company_price_list"),externalPrices,checkedAt:new Date().toISOString()});
       const report = await analyzeBid({settings,extraction,priceCandidates,certifications:String(input.certifications||""),targetMargin:Number(input.targetMargin||12)});
       await writeJson(path.join(base,"06_분석결과","AI_판단결과.json"),report);
       const reportPath=path.join(base,"06_분석결과","참가판단리포트.md"); await fs.writeFile(reportPath,reportToMarkdown(notice,report),"utf8");
