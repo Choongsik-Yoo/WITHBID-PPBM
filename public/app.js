@@ -61,6 +61,16 @@ function escapeHtml(value) {
 
 function formObject(form) { return Object.fromEntries(new FormData(form).entries()); }
 
+const progressStages=["공고 조회","첨부 다운로드","한컴문서 변환","AI 문서 추출","단가표 조회","외부 가격 검색","참가 판단","결과 저장"];
+function renderProgress(progress){
+  const panel=$("#analysisProgress"); panel.hidden=false; panel.classList.toggle("failed",progress.status==="failed");
+  const percent=Math.max(0,Math.min(100,Number(progress.percent)||0));
+  $("#progressStage").textContent=progress.message||"분석 준비"; $("#progressPercent").textContent=`${percent}%`; $("#progressBar").style.width=`${percent}%`;
+  panel.querySelector("[role=progressbar]").setAttribute("aria-valuenow",String(percent));
+  const active=Math.max(0,progressStages.indexOf(progress.stage));
+  $("#progressSteps").innerHTML=progressStages.map((stage,index)=>`<li class="${index<active||percent===100?"done":index===active?"active":""}">${stage}</li>`).join("");
+}
+
 $$('.tab').forEach((tab) => tab.addEventListener("click", () => showView(tab.dataset.view)));
 $$('[data-go]').forEach((button) => button.addEventListener("click", () => showView(button.dataset.go)));
 
@@ -133,9 +143,11 @@ $("#openaiSettingsForm").addEventListener("submit", async (event) => {
 
 $("#autoAnalyzeForm").addEventListener("submit", async (event) => {
   event.preventDefault(); const form=event.currentTarget; const status=$("#automationStatus"); const button=form.querySelector("button");
-  status.textContent="공고 페이지 수집 및 AI 분석 중입니다. 창을 닫지 마세요."; button.disabled=true;
-  try { const result=await api("/api/automation/analyze-link",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(form))}); status.textContent=`${result.report.decision}: ${result.report.summary} — 저장 완료`; form.reset(); await refresh(); toast("자동 분석을 완료했습니다."); }
-  catch(error){ status.textContent=error.message; toast(error.message,true); } finally { button.disabled=false; }
+  const jobId=crypto.randomUUID(); let polling=true; renderProgress({percent:1,stage:"공고 조회",message:"자동 분석을 준비하고 있습니다.",status:"running"});
+  status.textContent="진행 상황을 실시간으로 확인하고 있습니다. 창을 닫지 마세요."; button.disabled=true;
+  const poll=async()=>{while(polling){try{const progress=await api(`/api/automation/progress?id=${encodeURIComponent(jobId)}`);renderProgress(progress);}catch{}await new Promise(resolve=>setTimeout(resolve,700));}}; const pollingTask=poll();
+  try { const result=await api("/api/automation/analyze-link",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...formObject(form),jobId})}); renderProgress({percent:100,stage:"결과 저장",message:"분석과 파일 저장을 완료했습니다.",status:"completed"}); status.textContent=`${result.report.decision}: ${result.report.summary} — 저장 완료`; form.reset(); await refresh(); toast("자동 분석을 완료했습니다."); }
+  catch(error){ renderProgress({percent:100,stage:"결과 저장",message:error.message,status:"failed"}); status.textContent=error.message; toast(error.message,true); } finally { polling=false; await pollingTask; button.disabled=false; }
 });
 
 $("#g2bSettingsForm").addEventListener("submit",async(event)=>{event.preventDefault();const form=event.currentTarget;try{const result=await api("/api/settings/g2b",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(form))});form.elements.apiKey.value="";$("#g2bKeyStatus").textContent=`등록됨 (${result.keyHint})`;toast("나라장터 API 설정을 저장했습니다.");}catch(error){toast(error.message,true);}});
