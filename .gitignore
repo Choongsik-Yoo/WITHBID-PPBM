@@ -8,4 +8,5 @@ dist/
 coverage/
 company_price_list*
 openai.json
+g2b.json
 !samples/company_price_list_sample.csv

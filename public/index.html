@@ -100,6 +100,11 @@
         <p class="wide privacy-note">키는 D드라이브 설정 폴더에만 저장되며 화면·로그·GitHub에 표시되지 않습니다.</p>
         <div class="wide actions"><button class="primary" type="submit">API 설정 저장</button></div>
       </form>
+      <form id="g2bSettingsForm" class="panel form-grid settings-gap">
+        <label class="wide">공공데이터포털 나라장터 API 키<input name="apiKey" type="password" autocomplete="off" placeholder="새 키를 입력하거나 기존 키를 유지하세요"><small id="g2bKeyStatus">등록되지 않음</small></label>
+        <p class="wide privacy-note">공공데이터포털의 ‘조달청_나라장터 입찰공고정보서비스’ 활용신청 후 발급된 일반 인증키를 입력하세요.</p>
+        <div class="wide actions"><button class="primary" type="submit">나라장터 API 설정 저장</button></div>
+      </form>
     </section>
   </main>
   <div id="toast" role="status"></div>

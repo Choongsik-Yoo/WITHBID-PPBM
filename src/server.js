@@ -3,19 +3,21 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getConfig } from "./config.js";
-import { ensureDataLayout, readJson, sha256, writeJson } from "./lib/files.js";
+import { ensureDataLayout, readJson, safeName, sha256, writeJson } from "./lib/files.js";
 import { parsePriceList } from "./lib/price-list.js";
 import { buildExternalSearches, rankCompanyPrices } from "./lib/pricing.js";
 import { createNotice } from "./lib/notices.js";
 import { buildOpalBundle } from "./lib/opal.js";
 import { analyzeBid, extractNotice, redactSettings, reportToMarkdown } from "./lib/openai.js";
 import { extractNoticeNumber, fetchNoticePage } from "./lib/web-source.js";
+import { attachmentName, attachmentUrl, fetchG2bNotice, g2bToText, parseG2bLink } from "./lib/g2b.js";
 
 const config = getConfig();
 const appRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const publicRoot = path.join(appRoot, "public");
 const stateFile = path.join(config.dataRoot, "_데이터베이스", "app-state.json");
 const openaiSettingsFile = path.join(config.dataRoot, "_설정", "openai.json");
+const g2bSettingsFile = path.join(config.dataRoot, "_설정", "g2b.json");
 
 await ensureDataLayout(config.dataRoot);
 
@@ -87,17 +89,23 @@ const server = http.createServer(async (request, response) => {
       await writeJson(openaiSettingsFile, settings);
       return json(response, 200, redactSettings(settings));
     }
+    if (request.method === "GET" && url.pathname === "/api/settings/g2b") { const value=await readJson(g2bSettingsFile,{}); return json(response,200,{configured:Boolean(value.apiKey),keyHint:value.apiKey?`${value.apiKey.slice(0,4)}…${value.apiKey.slice(-4)}`:""}); }
+    if (request.method === "POST" && url.pathname === "/api/settings/g2b") { const input=await bodyJson(request); const previous=await readJson(g2bSettingsFile,{}); const apiKey=String(input.apiKey||previous.apiKey||"").trim(); if(!apiKey) throw new Error("나라장터 API 키를 입력해 주세요."); await writeJson(g2bSettingsFile,{apiKey}); return json(response,200,{configured:true,keyHint:`${apiKey.slice(0,4)}…${apiKey.slice(-4)}`}); }
     if (request.method === "POST" && url.pathname === "/api/automation/analyze-link") {
       const input = await bodyJson(request);
       const settings = await readJson(openaiSettingsFile, {});
+      const g2bSettings = await readJson(g2bSettingsFile, {});
       if (!settings.apiKey) throw new Error("설정에서 OpenAI API 키를 먼저 등록해 주세요.");
       const sourceUrl = String(input.sourceUrl || "").trim();
-      const page = await fetchNoticePage(sourceUrl);
-      const extraction = await extractNotice({ settings, sourceText:page.text });
-      const notice = await createNotice(config.dataRoot, { noticeNumber:extraction.noticeNumber || extractNoticeNumber(sourceUrl) || `AUTO-${Date.now()}`, title:extraction.title || "공고명 확인 필요", organization:extraction.organization || "", deadline:extraction.deadline || "0000-00-00", sourceUrl:page.finalUrl });
+      let sourceText, official=null, finalUrl=sourceUrl;
+      if (/g2b\.go\.kr/i.test(sourceUrl)) { if(!g2bSettings.apiKey) throw new Error("설정에서 공공데이터포털 나라장터 API 키를 먼저 등록해 주세요."); const ids=parseG2bLink(sourceUrl); official=await fetchG2bNotice({apiKey:g2bSettings.apiKey,...ids}); sourceText=g2bToText(official); }
+      else { const page=await fetchNoticePage(sourceUrl); sourceText=page.text; finalUrl=page.finalUrl; }
+      const extraction = await extractNotice({ settings, sourceText });
+      const notice = await createNotice(config.dataRoot, { noticeNumber:extraction.noticeNumber || extractNoticeNumber(sourceUrl) || `AUTO-${Date.now()}`, title:extraction.title || "공고명 확인 필요", organization:extraction.organization || "", deadline:extraction.deadline || "0000-00-00", sourceUrl:finalUrl });
       const state = await loadState(); state.notices.unshift(notice);
       const base = path.join(config.dataRoot, "진행중", notice.folderName);
-      await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),page.text,"utf8");
+      await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),sourceText,"utf8");
+      if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); for(const [index,item] of official.attachments.entries()) { const download=attachmentUrl(item); if(!download) continue; try { const response=await fetch(download); if(response.ok) await fs.writeFile(path.join(base,"02_첨부파일",safeName(attachmentName(item,index),100)),Buffer.from(await response.arrayBuffer())); } catch {} } }
       await writeJson(path.join(base,"04_구조화데이터","AI_추출결과.json"),extraction);
       const priceCandidates = extraction.requirements.flatMap(r => rankCompanyPrices(state.priceList.items,{category:r.category,model:r.condition}).slice(0,3).map(i=>({requirement:r,model:i.model,unitPrice:i.unitPrice,source:"company_price_list",stock:i.stock})));
       const report = await analyzeBid({settings,extraction,priceCandidates,certifications:String(input.certifications||""),targetMargin:Number(input.targetMargin||12)});

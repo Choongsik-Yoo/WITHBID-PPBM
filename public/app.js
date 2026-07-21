@@ -48,6 +48,11 @@ async function loadOpenAISettings() {
   } catch (error) { toast(error.message, true); }
 }
 
+async function loadG2bSettings() {
+  try { const settings=await api("/api/settings/g2b"); $("#g2bKeyStatus").textContent=settings.configured?`등록됨 (${settings.keyHint})`:"등록되지 않음"; }
+  catch(error){ toast(error.message,true); }
+}
+
 function escapeHtml(value) {
   const div = document.createElement("div");
   div.textContent = value ?? "";
@@ -132,4 +137,6 @@ $("#autoAnalyzeForm").addEventListener("submit", async (event) => {
   catch(error){ status.textContent=error.message; toast(error.message,true); } finally { button.disabled=false; }
 });
 
-refresh(); loadOpenAISettings();
+$("#g2bSettingsForm").addEventListener("submit",async(event)=>{event.preventDefault();try{const result=await api("/api/settings/g2b",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(event.currentTarget))});event.currentTarget.elements.apiKey.value="";$("#g2bKeyStatus").textContent=`등록됨 (${result.keyHint})`;toast("나라장터 API 설정을 저장했습니다.");}catch(error){toast(error.message,true);}});
+
+refresh(); loadOpenAISettings(); loadG2bSettings();

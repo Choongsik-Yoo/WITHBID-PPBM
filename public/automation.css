@@ -3,3 +3,4 @@
 .link-entry { display:flex; gap:8px; }.link-entry input { min-width:0; }.link-entry .primary { background:#d8f264; color:#164f3a; white-space:nowrap; }
 .automation-status { grid-column:1/-1; color:#dce7e1; font-size:13px; }.privacy-note { margin:0; padding:14px; border-radius:10px; background:#f1f3ee; color:#63716a; font-size:13px; }
 @media (max-width:760px) { .quick-analyze { grid-template-columns:1fr; }.link-entry { flex-direction:column; } }
+.settings-gap { margin-top:20px; }
