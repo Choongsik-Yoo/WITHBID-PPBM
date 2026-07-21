@@ -21,6 +21,7 @@
       <button class="tab active" data-view="dashboard">대시보드</button>
       <button class="tab" data-view="notice">공고 등록</button>
       <button class="tab" data-view="pricing">단가표·가격 검색</button>
+      <button class="tab" data-view="opal">Opal 분석</button>
     </nav>
 
     <section id="dashboard" class="view active">
@@ -58,6 +59,30 @@
         </form>
       </div>
       <div id="priceResults" class="results"></div>
+    </section>
+
+    <section id="opal" class="view">
+      <div class="section-heading"><div><p class="eyebrow">OPAL WORKFLOW</p><h2>Opal 분석 자료 만들기</h2></div></div>
+      <div class="opal-steps">
+        <form id="opalForm" class="panel form-stack">
+          <div class="step-title"><span>1</span><div><h3>분석 입력 준비</h3><p>공고 원문과 규격서에서 추출한 텍스트를 붙여넣으세요.</p></div></div>
+          <label>분석할 공고<select id="opalNotice" name="noticeId" required></select></label>
+          <label>목표 마진율 (%)<input name="targetMargin" type="number" min="0" max="100" value="12"></label>
+          <label>공고·규격 원문<textarea name="sourceText" rows="12" required placeholder="공고문과 규격서의 텍스트를 붙여넣으세요."></textarea></label>
+          <label>자사 인증 보유현황<textarea name="certificationText" rows="5" placeholder="예: ISO9001 | 보유 | 2027-03-31"></textarea></label>
+          <button class="primary full" type="submit">Opal 입력문 생성</button>
+        </form>
+        <div id="opalBundlePanel" class="panel form-stack muted-panel">
+          <div class="step-title"><span>2</span><div><h3>Opal에 전달</h3><p>생성 후 전체 입력문을 복사해 Opal에 붙여넣으세요.</p></div></div>
+          <textarea id="opalBundle" rows="15" readonly placeholder="생성된 Opal 입력문이 여기에 표시됩니다."></textarea>
+          <button id="copyOpal" class="secondary full" type="button">전체 입력문 복사</button>
+        </div>
+        <form id="opalResultForm" class="panel form-stack">
+          <div class="step-title"><span>3</span><div><h3>분석 결과 저장</h3><p>Opal이 작성한 결과 전문을 붙여넣으세요.</p></div></div>
+          <textarea id="opalResult" name="result" rows="15" required placeholder="Opal 분석 결과를 붙여넣으세요."></textarea>
+          <button class="primary full" type="submit">D드라이브에 결과 저장</button>
+        </form>
+      </div>
     </section>
   </main>
   <div id="toast" role="status"></div>

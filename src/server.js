@@ -7,6 +7,7 @@ import { ensureDataLayout, readJson, sha256, writeJson } from "./lib/files.js";
 import { parsePriceList } from "./lib/price-list.js";
 import { buildExternalSearches, rankCompanyPrices } from "./lib/pricing.js";
 import { createNotice } from "./lib/notices.js";
+import { buildOpalBundle } from "./lib/opal.js";
 
 const config = getConfig();
 const appRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -101,6 +102,36 @@ const server = http.createServer(async (request, response) => {
         ? { resolution: "company_price_list", companyMatches, externalSearches: [] }
         : { resolution: "external_search_required", companyMatches: [], externalSearches: buildExternalSearches(query) };
       return json(response, 200, { ...result, checkedAt: new Date().toISOString() });
+    }
+    if (request.method === "POST" && url.pathname === "/api/opal/bundle") {
+      const input = await bodyJson(request);
+      const state = await loadState();
+      const notice = state.notices.find((item) => item.id === input.noticeId);
+      if (!notice) throw new Error("분석할 공고를 찾지 못했습니다.");
+      const bundle = buildOpalBundle({
+        notice,
+        sourceText: input.sourceText,
+        certificationText: input.certificationText,
+        targetMargin: input.targetMargin,
+        priceItems: state.priceList.items,
+      });
+      const folder = path.join(config.dataRoot, "진행중", notice.folderName, "04_구조화데이터");
+      await fs.writeFile(path.join(folder, "Opal_입력자료.md"), bundle, "utf8");
+      return json(response, 200, { bundle, savedTo: path.join(folder, "Opal_입력자료.md") });
+    }
+    if (request.method === "POST" && url.pathname === "/api/opal/result") {
+      const input = await bodyJson(request);
+      const state = await loadState();
+      const notice = state.notices.find((item) => item.id === input.noticeId);
+      if (!notice) throw new Error("결과를 저장할 공고를 찾지 못했습니다.");
+      if (!String(input.result || "").trim()) throw new Error("Opal 분석 결과를 붙여넣어 주세요.");
+      const resultFolder = path.join(config.dataRoot, "진행중", notice.folderName, "06_분석결과");
+      const filePath = path.join(resultFolder, "참가판단리포트.md");
+      await fs.writeFile(filePath, String(input.result).trim(), "utf8");
+      notice.status = "분석완료";
+      notice.analyzedAt = new Date().toISOString();
+      await saveState(state);
+      return json(response, 200, { savedTo: filePath, analyzedAt: notice.analyzedAt });
     }
     if (request.method === "GET" && await serveStatic(request, response)) return;
     json(response, 404, { error: "요청한 기능을 찾을 수 없습니다." });

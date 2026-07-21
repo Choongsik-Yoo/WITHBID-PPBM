@@ -30,6 +30,9 @@ async function refresh() {
     $("#priceCount").textContent = status.priceCount;
     $("#noticeList").innerHTML = notices.length ? notices.map((notice) => `
       <article class="notice-card"><time>${notice.deadline}</time><div><h3>${escapeHtml(notice.title)}</h3><p>${escapeHtml(notice.noticeNumber)} · ${escapeHtml(notice.organization || "기관 미입력")}</p></div><span class="tag">${escapeHtml(notice.status)}</span></article>`).join("") : '<div class="empty">등록된 공고가 없습니다.</div>';
+    $("#opalNotice").innerHTML = notices.length
+      ? notices.map((notice) => `<option value="${notice.id}">${escapeHtml(notice.noticeNumber)} · ${escapeHtml(notice.title)}</option>`).join("")
+      : '<option value="">먼저 공고를 등록하세요</option>';
   } catch (error) {
     $("#connection").textContent = "연결 오류";
     toast(error.message, true);
@@ -73,6 +76,33 @@ $("#searchForm").addEventListener("submit", async (event) => {
     } else {
       $("#priceResults").innerHTML = `<div class="result-card"><h3>자사 단가표 미등록 — 외부 가격 확인</h3><p>컴퓨존을 먼저 확인하고, 찾지 못하면 가이드컴을 확인하세요. 실제 상품 가격과 상세 링크는 담당자 확인 후 저장됩니다.</p>${result.externalSearches.map((item, index) => `<div class="result-row"><div><strong>${index + 2}순위 · ${item.sourceName}</strong><p>${escapeHtml(item.query)}</p></div><a href="${item.searchUrl}" target="_blank" rel="noreferrer">검색 열기 ↗</a></div>`).join("")}</div>`;
     }
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#opalForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const result = await api("/api/opal/bundle", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(formObject(event.currentTarget)) });
+    $("#opalBundle").value = result.bundle;
+    toast("Opal 입력문을 만들고 D드라이브에 저장했습니다.");
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#copyOpal").addEventListener("click", async () => {
+  const value = $("#opalBundle").value;
+  if (!value) return toast("먼저 Opal 입력문을 만들어 주세요.", true);
+  try { await navigator.clipboard.writeText(value); toast("Opal 입력문을 복사했습니다."); }
+  catch { $("#opalBundle").select(); document.execCommand("copy"); toast("Opal 입력문을 복사했습니다."); }
+});
+
+$("#opalResultForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const noticeId = $("#opalNotice").value;
+  try {
+    const result = await api("/api/opal/result", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ noticeId, result:$("#opalResult").value }) });
+    $("#opalResult").value = "";
+    toast("Opal 결과를 분석 폴더에 저장했습니다.");
+    await refresh();
   } catch (error) { toast(error.message, true); }
 });
 
