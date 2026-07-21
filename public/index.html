@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WITHBID PPBM</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">W</span><div><strong>WITHBID</strong><small>Procurement Price & Bid Manager</small></div></div>
+    <span id="connection" class="pill">연결 확인 중</span>
+  </header>
+  <main>
+    <section class="hero">
+      <div><p class="eyebrow">LOCAL PROCUREMENT WORKSPACE</p><h1>조달공고를 근거 중심으로<br>검토하고 견적하세요.</h1><p class="lead">공고 원문과 단가표는 이 PC의 D드라이브에 보관됩니다.</p></div>
+      <div class="summary-card"><span>데이터 저장 위치</span><strong id="dataRoot">확인 중…</strong><div class="stats"><div><b id="noticeCount">0</b><small>진행 공고</small></div><div><b id="priceCount">0</b><small>등록 단가</small></div></div></div>
+    </section>
+
+    <nav class="tabs" aria-label="주요 기능">
+      <button class="tab active" data-view="dashboard">대시보드</button>
+      <button class="tab" data-view="notice">공고 등록</button>
+      <button class="tab" data-view="pricing">단가표·가격 검색</button>
+    </nav>
+
+    <section id="dashboard" class="view active">
+      <div class="section-heading"><div><p class="eyebrow">ACTIVE NOTICES</p><h2>진행 중인 공고</h2></div><button class="primary" data-go="notice">새 공고 등록</button></div>
+      <div id="noticeList" class="notice-list"><div class="empty">등록된 공고가 없습니다.</div></div>
+    </section>
+
+    <section id="notice" class="view">
+      <div class="section-heading"><div><p class="eyebrow">NEW NOTICE</p><h2>공고 기본정보 등록</h2></div></div>
+      <form id="noticeForm" class="panel form-grid">
+        <label>공고번호<input name="noticeNumber" required placeholder="예: 20260712345"></label>
+        <label>마감일<input name="deadline" required type="date"></label>
+        <label class="wide">공고명<input name="title" required placeholder="공고명을 입력하세요"></label>
+        <label>수요기관<input name="organization" placeholder="기관명"></label>
+        <label>나라장터 URL<input name="sourceUrl" type="url" placeholder="https://..."></label>
+        <div class="wide actions"><button class="primary" type="submit">D드라이브에 공고 폴더 만들기</button></div>
+      </form>
+    </section>
+
+    <section id="pricing" class="view">
+      <div class="section-heading"><div><p class="eyebrow">PRICE EVIDENCE</p><h2>자사 단가 우선 가격 조회</h2></div></div>
+      <div class="two-column">
+        <form id="uploadForm" class="panel">
+          <h3>Company price list</h3><p>CSV 또는 XLSX 파일을 올리면 기존 단가표를 교체하고 원본은 보관합니다.</p>
+          <label class="file-box"><input id="priceFile" type="file" accept=".csv,.xlsx" required><span>파일 선택</span><b id="fileName">선택된 파일 없음</b></label>
+          <button class="primary full" type="submit">단가표 가져오기</button>
+        </form>
+        <form id="searchForm" class="panel form-stack">
+          <h3>부품 가격 찾기</h3>
+          <label>구분<input name="category" placeholder="예: CPU"></label>
+          <label>모델명<input name="model" required placeholder="예: Intel Core i5-14500"></label>
+          <label>제조사 부품번호<input name="mpn" placeholder="정확 매칭에 우선 사용"></label>
+          <label>규격<input name="specification" placeholder="예: 14코어 20스레드"></label>
+          <button class="primary full" type="submit">가격 검색</button>
+        </form>
+      </div>
+      <div id="priceResults" class="results"></div>
+    </section>
+  </main>
+  <div id="toast" role="status"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
