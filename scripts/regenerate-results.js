@@ -38,9 +38,14 @@ for (const notice of state.notices) {
     reportToDashboardHtml(notice, report, extraction),
     "utf8",
   );
-  await fs.writeFile(
-    path.join(base, "견적서.xlsx"),
-    Buffer.from(await quoteWorkbookBuffer(notice, report, extraction, 12)),
-  );
-  console.log(`${notice.noticeNumber}: 대시보드와 견적서 저장 완료`);
+  const workbook = Buffer.from(await quoteWorkbookBuffer(notice, report, extraction, 12));
+  let quoteName = "견적서.xlsx";
+  try {
+    await fs.writeFile(path.join(base, quoteName), workbook);
+  } catch (error) {
+    if (error.code !== "EBUSY") throw error;
+    quoteName = "견적서_사양별통합.xlsx";
+    await fs.writeFile(path.join(base, quoteName), workbook);
+  }
+  console.log(`${notice.noticeNumber}: 대시보드와 ${quoteName} 저장 완료`);
 }
