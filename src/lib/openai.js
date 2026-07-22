@@ -1,3 +1,5 @@
+import { scoreModelMatch } from "./pricing.js";
+
 const defaults = { extractionModel: "gpt-5.6-luna", analysisModel: "gpt-5.6-terra" };
 
 export function redactSettings(settings = {}) {
@@ -36,10 +38,10 @@ const externalPriceSchema={
 export async function findExternalPrices({settings,requirements,fetchImpl=fetch}) {
   if(!requirements.length)return [];
   const searchOne=async requirement=>{
-    const response=await fetchImpl("https://api.openai.com/v1/responses",{method:"POST",headers:{Authorization:`Bearer ${settings.apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:settings.extractionModel||defaults.extractionModel,reasoning:{effort:"low"},tools:[{type:"web_search",filters:{allowed_domains:["compuzone.co.kr","guidecom.co.kr"]}}],tool_choice:"required",include:["web_search_call.action.sources"],instructions:"한국 PC 부품 가격 조사자다. 자사 단가표에서 찾지 못한 품목 하나를 조사한다. 컴퓨존을 우선하고 없을 때 가이드컴을 사용한다. 요구사항에 여러 제품이 있으면 제품별로 분리한다. 정확한 모델 또는 명백히 동일한 정품만 채택한다. 검색결과 요약 가격을 추측하지 말고 직접 상품 페이지에 명시된 현재 판매가격만 원화 숫자로 기록한다. 동일 제품 여러 개가 한 구성에 필요하면 unitPrice는 1개 가격으로 기록하고 status에 구성당 필요 개수를 명시한다. 직접 상품 URL이 없거나 품절·모델 불일치·가격 불명확이면 unitPrice와 sourceUrl을 null로 둔다.",input:JSON.stringify(requirement),store:false,text:{format:{type:"json_schema",name:externalPriceSchema.name,strict:true,schema:externalPriceSchema.value}}})});
+    const response=await fetchImpl("https://api.openai.com/v1/responses",{method:"POST",headers:{Authorization:`Bearer ${settings.apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:settings.extractionModel||defaults.extractionModel,reasoning:{effort:"low"},tools:[{type:"web_search",filters:{allowed_domains:["compuzone.co.kr","guidecom.co.kr"]}}],tool_choice:"required",include:["web_search_call.action.sources"],instructions:"한국 PC 부품 가격 조사자다. 자사 단가표에서 찾지 못한 품목 하나를 조사한다. 1) 컴퓨존 동일 모델, 2) 가이드컴 동일 모델, 3) 동일 모델이 없으면 핵심 키워드가 많이 일치하는 대체모델 순으로 최대 3개를 반환한다. 핵심 키워드 예: 마이크로닉스 Classic II 850W 80PLUS GOLD는 850W·80PLUS·GOLD, RTX 5060 GAMING DUO D7 8GB는 RTX5060·D7·8GB, DDR5 PC5-48000 16GB는 DDR5-48000·16GB, Ultra 5 225는 Ultra5·225다. 제조사나 색상보다 칩셋·용량·속도·전력·효율등급을 우선한다. 정확 모델이 아니면 status에 '대체모델 후보'와 일치 핵심 키워드를 반드시 적는다. 직접 상품 페이지에 명시된 현재 판매가격과 직접 URL만 기록한다. 동일 제품 여러 개가 한 구성에 필요하면 unitPrice는 1개 가격이다.",input:JSON.stringify(requirement),store:false,text:{format:{type:"json_schema",name:externalPriceSchema.name,strict:true,schema:externalPriceSchema.value}}})});
     const payload=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(payload.error?.message||`외부 가격 검색 오류 (${response.status})`);
-    return JSON.parse(responseText(payload)).products;
+    return JSON.parse(responseText(payload)).products.map(item=>({...item,...scoreModelMatch(requirement.model,item.matchedModel)})).filter(item=>item.matchType==="exact"||item.matchScore>=60||item.matchedKeywords.length>=2).sort((a,b)=>b.matchScore-a.matchScore||Number(b.sourceName==="컴퓨존")-Number(a.sourceName==="컴퓨존")).slice(0,3);
   };
   const products=[];
   for(let index=0;index<requirements.length;index+=3){const batch=await Promise.all(requirements.slice(index,index+3).map(searchOne));products.push(...batch.flat());}

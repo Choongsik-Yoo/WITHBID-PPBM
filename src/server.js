@@ -128,7 +128,7 @@ const server = http.createServer(async (request, response) => {
       const unresolved=companyByRequirement.filter(({requirement,matches})=>requirement.quantity&&matches.length===0).map(({requirement})=>({category:requirement.category,model:requirement.condition,quantity:requirement.quantity}));
       updateProgress(activeJobId,66,"외부 가격 검색",`${unresolved.length}개 미등록 품목을 컴퓨존·가이드컴에서 검색하고 있습니다.`);
       const externalPrices=await findExternalPrices({settings,requirements:unresolved});
-      priceCandidates.push(...externalPrices.map(item=>({requirement:{category:item.category,condition:item.requestedModel},model:item.matchedModel,unitPrice:item.unitPrice,source:item.sourceName,sourceUrl:item.sourceUrl,stock:"웹 판매 페이지 확인",checkedAt:item.checkedAt,confidence:item.confidence,status:item.status})));
+      priceCandidates.push(...externalPrices.map(item=>({requirement:{category:item.category,condition:item.requestedModel},model:item.matchedModel,unitPrice:item.unitPrice,source:item.sourceName,sourceUrl:item.sourceUrl,stock:"웹 판매 페이지 확인",checkedAt:item.checkedAt,confidence:item.confidence,matchScore:item.matchScore,matchedKeywords:item.matchedKeywords,matchType:item.matchType,status:`${item.matchType==="exact"?"동일모델":"대체모델 후보"} · 일치도 ${item.matchScore}% · ${item.status}`})));
       await writeJson(path.join(base,"05_가격근거","가격조사결과.json"),{companyPriceList:priceCandidates.filter(item=>item.source==="company_price_list"),externalPrices,checkedAt:new Date().toISOString()});
       updateProgress(activeJobId,82,"참가 판단","가격·자격·납기 조건을 종합하여 참가 여부를 판단하고 있습니다.");
       const report = await analyzeBid({settings,extraction,priceCandidates,certifications:String(input.certifications||""),targetMargin:Number(input.targetMargin||12)});

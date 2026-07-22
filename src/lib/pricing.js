@@ -80,3 +80,27 @@ export function buildExternalSearches(query) {
     },
   ];
 }
+
+export function coreModelKeywords(value) {
+  const text=String(value||"").toUpperCase().replace(/[\[\]()_,/]+/g," ").replace(/\s+/g," ");
+  const keywords=[]; const add=value=>{if(value&&!keywords.includes(value))keywords.push(value);};
+  for(const match of text.matchAll(/(?:DDR5\s*)?PC5[- ]?(\d{4,5})/g))add(`DDR5-${match[1]}`);
+  for(const match of text.matchAll(/RTX\s*(\d{4})/g))add(`RTX${match[1]}`);
+  for(const match of text.matchAll(/\b(D\d)\b/g))add(match[1]);
+  for(const match of text.matchAll(/\b(\d{1,2})\s*GB\b/g))add(`${match[1]}GB`);
+  for(const match of text.matchAll(/\b(\d{3,4})\s*W\b/g))add(`${match[1]}W`);
+  if(/80\s*PLUS/.test(text))add("80PLUS");
+  for(const grade of ["TITANIUM","PLATINUM","GOLD","SILVER","BRONZE"])if(text.includes(grade))add(grade);
+  const ultra=text.match(/ULTRA\s*([3579])\s+(?:프로세서\s+)?(\d{3}[A-Z]?)/);if(ultra){add(`ULTRA${ultra[1]}`);add(ultra[2]);}
+  if(/\bDDR5\b/.test(text)&&!keywords.some(item=>item.startsWith("DDR5-")))add("DDR5");
+  if(keywords.length<2)for(const token of text.match(/[A-Z0-9]+(?:-[A-Z0-9]+)*/g)||[])if(token.length>=3)add(token);
+  return keywords;
+}
+
+export function scoreModelMatch(requestedModel,matchedModel) {
+  const required=coreModelKeywords(requestedModel); const candidate=coreModelKeywords(matchedModel);
+  const matched=required.filter(keyword=>candidate.includes(keyword));
+  const normalized=value=>String(value||"").toUpperCase().replace(/[^A-Z0-9가-힣]/g,"");
+  const exact=normalized(requestedModel)===normalized(matchedModel);
+  return {matchScore:exact?100:(required.length?Math.round(matched.length/required.length*100):0),matchedKeywords:matched,requiredKeywords:required,matchType:exact?"exact":matched.length?"keyword":"none"};
+}
