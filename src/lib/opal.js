@@ -9,7 +9,7 @@ export function buildOpalBundle({ notice, sourceText, priceItems, certificationT
     ? priceItems.map(compactPriceItem).join("\n")
     : "등록된 자사 단가가 없습니다. 가격을 추정하지 말고 가격 확인 필요로 표시하세요.";
 
-  return `# WITHBID 조달공고 분석 요청
+  return `# WITHBID-PPBM 조달공고 분석 요청
 
 너는 대한민국 공공조달 입찰 공고를 분석하는 전문가다. 아래 원문과 자사 정보를 근거로 분석하라.
 원문에 없는 내용과 가격은 추측하지 말고 반드시 "확인 필요"로 표시한다.

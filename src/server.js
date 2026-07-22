@@ -211,6 +211,6 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(config.port, config.host, () => {
-  console.log(`WITHBID PPBM: http://${config.host}:${config.port}`);
+  console.log(`WITHBID-PPBM: http://${config.host}:${config.port}`);
   console.log(`데이터 저장 위치: ${config.dataRoot}`);
 });

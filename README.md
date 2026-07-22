@@ -1,4 +1,4 @@
-# WITHBID PPBM
+# WITHBID-PPBM
 
 조달공고 원문, 자사 단가표, 가격 근거와 분석 결과를 Windows PC의 `D:\입찰관리`에 보관하는 로컬 웹앱입니다. GitHub에는 코드와 테스트만 저장합니다.
 
