@@ -2,8 +2,7 @@
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $appUrl = "http://127.0.0.1:4317/"
-$nasCandidates = @("\\Withusnas1\입찰관리", "\\192.168.0.240\입찰관리")
-$dataRoot = $null
+$dataRoot = "\\Withusnas1\입찰관리"
 $port = 4317
 $pidFile = Join-Path $env:LOCALAPPDATA "WITHBID-PPBM\server.pid"
 $logFile = Join-Path $env:LOCALAPPDATA "WITHBID-PPBM\launcher.log"
@@ -13,19 +12,18 @@ function Write-LauncherLog([string]$message) {
   Add-Content -LiteralPath $logFile -Value ("{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $message) -Encoding UTF8
 }
 
-function Find-NasRoot {
-  foreach ($candidate in $nasCandidates) {
-    try {
-      if (Test-Path -LiteralPath $candidate -ErrorAction Stop) {
-        Write-LauncherLog "NAS 연결 확인: $candidate"
-        return $candidate
-      }
-      Write-LauncherLog "NAS 경로 없음: $candidate"
-    } catch {
-      Write-LauncherLog "NAS 접근 실패: $candidate / $($_.Exception.Message)"
-    }
+function Test-NasByCommand([string]$uncPath) {
+  try {
+    # 파일 탐색기와 동일한 현재 Windows 사용자로 UNC 경로를 실제 조회합니다.
+    $command = 'dir "{0}" >nul 2>&1' -f $uncPath
+    & $env:ComSpec /d /c $command
+    $succeeded = $LASTEXITCODE -eq 0
+    Write-LauncherLog "CMD NAS 조회: $uncPath / 종료코드 $LASTEXITCODE"
+    return $succeeded
+  } catch {
+    Write-LauncherLog "CMD NAS 조회 오류: $uncPath / $($_.Exception.Message)"
+    return $false
   }
-  return $null
 }
 
 function Show-ErrorMessage([string]$message) {
@@ -35,18 +33,8 @@ function Show-ErrorMessage([string]$message) {
 
 try {
   Write-LauncherLog "실행 시작: $env:USERNAME"
-  $dataRoot = Find-NasRoot
-  if (-not $dataRoot) {
-    Start-Process explorer.exe -ArgumentList $nasCandidates[0]
-    Add-Type -AssemblyName PresentationFramework
-    $answer = [System.Windows.MessageBox]::Show(
-      "NAS 로그인 창이 열렸습니다.`n`n파일 탐색기에서 NAS 로그인을 완료하고 입찰관리 폴더가 열린 것을 확인한 다음 [다시 시도]를 누르세요.",
-      "WITHBID-PPBM NAS 연결", "RetryCancel", "Information"
-    )
-    if ($answer -eq [System.Windows.MessageBoxResult]::Retry) { $dataRoot = Find-NasRoot }
-    if (-not $dataRoot) {
-      throw "NAS 입찰관리 공유폴더에 연결할 수 없습니다.`n`n확인 경로:`n\\Withusnas1\입찰관리`n\\192.168.0.240\입찰관리`n`n진단 로그: $logFile"
-    }
+  if (-not (Test-NasByCommand $dataRoot)) {
+    throw "NAS 공유폴더에 접근할 수 없습니다.`n`n파일 탐색기 주소창에 아래 경로를 입력하여 NAS 로그인을 완료한 후 다시 실행하세요.`n`n\\Withusnas1\입찰관리`n`n진단 로그: $logFile"
   }
 
   # NAS 암호는 앱에 보관하지 않습니다. 현재 Windows 사용자의 SMB 세션을 사용합니다.

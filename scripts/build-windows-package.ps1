@@ -26,6 +26,9 @@ if (Test-Path -LiteralPath $localUsers) {
 
 $node = (Get-Command node.exe -ErrorAction Stop).Source
 Copy-Item -LiteralPath $node -Destination (Join-Path $runtimeRoot "node.exe") -Force
+$payload = Join-Path $packageRoot "WITHBID-PPBM-app.zip"
+Compress-Archive -Path (Join-Path $appRoot "*") -DestinationPath $payload -CompressionLevel Optimal
+Remove-Item -LiteralPath $appRoot -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "installer\Install-WITHBID-PPBM.ps1") -Destination $packageRoot -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot "installer\Install-WITHBID-PPBM.cmd") -Destination $packageRoot -Force
 
@@ -41,7 +44,7 @@ NAS 비밀번호는 앱에 저장되지 않으며 현재 Windows 사용자의 NA
 "@
 Set-Content -LiteralPath (Join-Path $packageRoot "INSTALL-KO.txt") -Value $readme -Encoding UTF8
 
-$zip = Join-Path $distRoot "WITHBID-PPBM-Desktop-Setup-0.3.1.zip"
+$zip = Join-Path $distRoot "WITHBID-PPBM-Desktop-Setup-0.3.2.zip"
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 Compress-Archive -LiteralPath $packageRoot -DestinationPath $zip -CompressionLevel Optimal
 Write-Host "패키지 생성 완료: $zip"
