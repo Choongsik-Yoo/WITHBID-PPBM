@@ -14,6 +14,7 @@ import { extractNoticeNumber, fetchNoticePage } from "./lib/web-source.js";
 import { attachmentName, attachmentUrl, fetchG2bNotice, g2bToText, parseG2bLink } from "./lib/g2b.js";
 import { quoteWorkbookBuffer, reportToDashboardHtml } from "./lib/result-artifacts.js";
 import { convertHancomAttachments } from "./lib/hancom.js";
+import { expandZipAttachments } from "./lib/archives.js";
 import { cookieValue, createSession, newSecret, normalizeUsers, readSession, verifyGoogleCredential } from "./lib/auth.js";
 
 const config = getConfig();
@@ -102,7 +103,7 @@ const server = http.createServer(async (request, response) => {
     const publicAuthPaths = new Set(["/api/app-info", "/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
 
     if (request.method === "GET" && url.pathname === "/api/app-info") {
-      return json(response, 200, { app: "WITHBID-PPBM", version: "0.2.1", dataRoot: config.dataRoot });
+      return json(response, 200, { app: "WITHBID-PPBM", version: "0.3.0", dataRoot: config.dataRoot });
     }
 
     if (request.method === "GET" && url.pathname === "/api/auth/config") {
@@ -187,17 +188,21 @@ const server = http.createServer(async (request, response) => {
       if (/g2b\.go\.kr/i.test(sourceUrl)) { if(!g2bSettings.apiKey) throw new Error("설정에서 공공데이터포털 나라장터 API 키를 먼저 등록해 주세요."); const ids=parseG2bLink(sourceUrl); official=await fetchG2bNotice({apiKey:g2bSettings.apiKey,...ids}); sourceText=g2bToText(official); for(const [index,item] of official.attachments.entries()){const url=attachmentUrl(item);if(!url)continue;try{const response=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0 Chrome/138.0"}});if(response.ok)downloadedFiles.push({filename:safeName(attachmentName(item,index),100),buffer:Buffer.from(await response.arrayBuffer())});}catch{}} }
       else { const page=await fetchNoticePage(sourceUrl); sourceText=page.text; finalUrl=page.finalUrl; }
       updateProgress(activeJobId,25,"첨부 다운로드",`${downloadedFiles.length}개 첨부파일을 내려받았습니다.`);
-      updateProgress(activeJobId,32,"한컴문서 변환","HWP/HWPX 첨부파일을 PDF로 변환하고 있습니다.");
+      updateProgress(activeJobId,29,"압축파일 해제","ZIP 첨부파일을 안전하게 풀고 있습니다.");
+      const archiveExpansion=await expandZipAttachments(downloadedFiles);
+      if(archiveExpansion.errors.length)throw new Error(`첨부 ZIP 압축 해제 실패: ${archiveExpansion.errors.map(item=>`${item.filename} (${item.error})`).join(", ")}`);
+      downloadedFiles=archiveExpansion.files;
+      updateProgress(activeJobId,34,"한컴문서 변환","압축 내부를 포함한 HWP/HWPX 문서를 PDF로 변환하고 있습니다.");
       const hancomConversion=await convertHancomAttachments(downloadedFiles,{scriptPath:hancomConverterScript});
       downloadedFiles.push(...hancomConversion.converted);
-      if(hancomConversion.errors.length&&!downloadedFiles.some(file=>/\.pdf$/i.test(file.filename)))throw new Error(`HWP/HWPX PDF 변환 실패: ${hancomConversion.errors.map(item=>`${item.filename} (${item.error})`).join(", ")}`);
+      if(hancomConversion.errors.length)throw new Error(`HWP/HWPX PDF 변환 실패: ${hancomConversion.errors.map(item=>`${item.filename} (${item.error})`).join(", ")}`);
       updateProgress(activeJobId,43,"AI 문서 추출","공고문과 변환된 PDF에서 요구사항을 추출하고 있습니다.");
       const extraction = await extractNotice({ settings, sourceText, files:downloadedFiles });
       const state = await loadState(); const number=extraction.noticeNumber || extractNoticeNumber(sourceUrl) || `AUTO-${Date.now()}`;
       let notice=state.notices.find(item=>item.noticeNumber===number); if(!notice){notice=await createNotice(config.dataRoot,{noticeNumber:number,title:extraction.title||"공고명 확인 필요",organization:extraction.organization||"",deadline:extraction.deadline||"0000-00-00",sourceUrl:finalUrl});state.notices.unshift(notice);}
       const base = path.join(config.dataRoot, "진행중", notice.folderName);
       await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),sourceText,"utf8");
-      if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); await writeJson(path.join(base,"04_구조화데이터","한컴문서_변환결과.json"),{converted:hancomConversion.converted.map(file=>({filename:file.filename,convertedFrom:file.convertedFrom,size:file.buffer.length})),errors:hancomConversion.errors,convertedAt:new Date().toISOString()}); for(const file of downloadedFiles) await fs.writeFile(path.join(base,"02_첨부파일",file.filename),file.buffer); }
+      if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); await writeJson(path.join(base,"04_구조화데이터","압축해제_결과.json"),{extracted:archiveExpansion.extracted.map(file=>({filename:file.filename,extractedFrom:file.extractedFrom,size:file.buffer.length})),errors:archiveExpansion.errors,extractedAt:new Date().toISOString()}); await writeJson(path.join(base,"04_구조화데이터","한컴문서_변환결과.json"),{converted:hancomConversion.converted.map(file=>({filename:file.filename,convertedFrom:file.convertedFrom,size:file.buffer.length})),errors:hancomConversion.errors,convertedAt:new Date().toISOString()}); for(const file of downloadedFiles){const target=path.join(base,"02_첨부파일",...String(file.filename).replace(/\\/g,"/").split("/"));await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,file.buffer);} }
       await writeJson(path.join(base,"04_구조화데이터","AI_추출결과.json"),extraction);
       updateProgress(activeJobId,58,"단가표 조회","자사 단가표를 우선 조회하고 있습니다.");
       const priceableRequirements=extraction.requirements.filter(isPriceableRequirement);
@@ -210,7 +215,7 @@ const server = http.createServer(async (request, response) => {
       await writeJson(path.join(base,"05_가격근거","가격조사결과.json"),{companyPriceList:priceCandidates.filter(item=>item.source==="company_price_list"),externalPrices,checkedAt:new Date().toISOString()});
       updateProgress(activeJobId,82,"참가 판단","가격·자격·납기 조건을 종합하여 참가 여부를 판단하고 있습니다.");
       const report = await analyzeBid({settings,extraction,priceCandidates,certifications:String(input.certifications||""),targetMargin:Number(input.targetMargin||12)});
-      updateProgress(activeJobId,92,"결과 저장","대시보드와 견적서를 D드라이브에 저장하고 있습니다.");
+      updateProgress(activeJobId,92,"결과 저장","대시보드와 견적서를 NAS 입찰관리 폴더에 저장하고 있습니다.");
       await writeJson(path.join(base,"06_분석결과","AI_판단결과.json"),report);
       const reportPath=path.join(base,"06_분석결과","참가판단리포트.md"); await fs.writeFile(reportPath,reportToMarkdown(notice,report),"utf8");
       const dashboardPath=path.join(base,"06_분석결과","입찰참가판단_대시보드.html"); await fs.writeFile(dashboardPath,reportToDashboardHtml(notice,report,extraction),"utf8");

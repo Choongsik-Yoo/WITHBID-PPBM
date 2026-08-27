@@ -16,8 +16,9 @@ export async function convertHancomAttachments(files,{scriptPath,convertFile=def
   const converted=[]; const errors=[];
   for(const file of files.filter(item=>isHancomFile(item.filename))){
     const tempDir=await fs.mkdtemp(path.join(os.tmpdir(),"withbid-hancom-"));
-    const inputPath=path.join(tempDir,path.basename(file.filename));
-    const outputName=pdfNameForHancom(file.filename); const outputPath=path.join(tempDir,outputName);
+    const normalizedName=String(file.filename).replace(/\\/g,"/");
+    const inputPath=path.join(tempDir,path.posix.basename(normalizedName));
+    const outputName=path.posix.join(path.posix.dirname(normalizedName),pdfNameForHancom(path.posix.basename(normalizedName))); const outputPath=path.join(tempDir,path.basename(outputName));
     try{await fs.writeFile(inputPath,file.buffer);await convertFile(inputPath,outputPath,scriptPath);const buffer=await fs.readFile(outputPath);if(buffer.subarray(0,4).toString()!=="%PDF")throw new Error("변환 결과가 PDF 형식이 아닙니다.");converted.push({filename:outputName,buffer,convertedFrom:file.filename});}
     catch(error){errors.push({filename:file.filename,error:error.message});}
     finally{await fs.rm(tempDir,{recursive:true,force:true});}

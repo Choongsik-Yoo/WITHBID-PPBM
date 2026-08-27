@@ -1,6 +1,6 @@
 {
   "name": "withbid-ppbm",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "조달공고 분석 및 부품 가격 근거 관리 로컬 앱",
   "type": "module",
@@ -13,7 +13,8 @@
     "check": "node --check src/server.js && node --test"
   },
   "dependencies": {
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "unzipper": "^0.12.3"
   },
   "engines": {
     "node": ">=20"
