@@ -1,6 +1,6 @@
 {
   "name": "withbid-ppbm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "조달공고 분석 및 부품 가격 근거 관리 로컬 앱",
   "type": "module",
@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "regenerate-results": "node scripts/regenerate-results.js",
+    "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-package.ps1",
     "test": "node --test",
     "check": "node --check src/server.js && node --test"
   },

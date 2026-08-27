@@ -99,7 +99,11 @@ const server = http.createServer(async (request, response) => {
     const auth = await loadAuthSettings();
     const authEnabled = Boolean(auth.clientId);
     const sessionUser = authEnabled ? readSession(cookieValue(request, "withbid_session"), auth.sessionSecret, auth.users) : null;
-    const publicAuthPaths = new Set(["/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
+    const publicAuthPaths = new Set(["/api/app-info", "/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
+
+    if (request.method === "GET" && url.pathname === "/api/app-info") {
+      return json(response, 200, { app: "WITHBID-PPBM", version: "0.2.0", dataRoot: config.dataRoot });
+    }
 
     if (request.method === "GET" && url.pathname === "/api/auth/config") {
       return json(response, 200, { configured:authEnabled, clientId:auth.clientId || null, userCount:auth.users.filter((item)=>item.enabled).length });
