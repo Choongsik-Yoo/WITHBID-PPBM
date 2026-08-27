@@ -44,62 +44,10 @@ NAS 비밀번호는 앱에 저장되지 않으며 현재 Windows 사용자의 NA
 "@
 Set-Content -LiteralPath (Join-Path $packageRoot "INSTALL-KO.txt") -Value $readme -Encoding UTF8
 
-$zip = Join-Path $distRoot "WITHBID-PPBM-Desktop-Setup-0.3.3.zip"
+$zip = Join-Path $distRoot "WITHBID-PPBM-Desktop-Setup-0.3.6.zip"
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 Compress-Archive -LiteralPath $packageRoot -DestinationPath $zip -CompressionLevel Optimal
 Write-Host "패키지 생성 완료: $zip"
 
-# ZIP 해제나 CMD 직접 실행 없이 더블클릭 한 번으로 설치할 수 있는 단일 EXE를 만듭니다.
-$iexpressRoot = Join-Path $env:TEMP "withbid-iexpress-033"
-if (Test-Path -LiteralPath $iexpressRoot) { Remove-Item -LiteralPath $iexpressRoot -Recurse -Force }
-New-Item -ItemType Directory -Path $iexpressRoot -Force | Out-Null
-$setupFiles = @("WITHBID-PPBM-app.zip", "Install-WITHBID-PPBM.ps1", "Install-WITHBID-PPBM.cmd", "INSTALL-KO.txt")
-foreach ($file in $setupFiles) { Copy-Item -LiteralPath (Join-Path $packageRoot $file) -Destination $iexpressRoot -Force }
-
-$temporaryExe = Join-Path $iexpressRoot "WITHBID-PPBM-Desktop-Setup-0.3.3.exe"
-$finalExe = Join-Path $distRoot "WITHBID-PPBM-Desktop-Setup-0.3.3.exe"
-$sedPath = Join-Path $iexpressRoot "withbid-setup.sed"
-$sourceWithSlash = $iexpressRoot.TrimEnd("\") + "\"
-$sed = @"
-[Version]
-Class=IEXPRESS
-SEDVersion=3
-[Options]
-PackagePurpose=InstallApp
-ShowInstallProgramWindow=1
-HideExtractAnimation=1
-UseLongFileName=1
-InsideCompressed=0
-CAB_FixedSize=0
-CAB_ResvCodeSigning=0
-RebootMode=N
-InstallPrompt=
-DisplayLicense=
-FinishMessage=
-TargetName=$temporaryExe
-FriendlyName=WITHBID-PPBM Desktop Setup 0.3.3
-AppLaunched=Install-WITHBID-PPBM.cmd
-PostInstallCmd=<None>
-AdminQuietInstCmd=
-UserQuietInstCmd=
-SourceFiles=SourceFiles
-[Strings]
-FILE0="WITHBID-PPBM-app.zip"
-FILE1="Install-WITHBID-PPBM.ps1"
-FILE2="Install-WITHBID-PPBM.cmd"
-FILE3="INSTALL-KO.txt"
-[SourceFiles]
-SourceFiles0=$sourceWithSlash
-[SourceFiles0]
-%FILE0%=
-%FILE1%=
-%FILE2%=
-%FILE3%=
-"@
-[System.IO.File]::WriteAllText($sedPath, $sed, [System.Text.Encoding]::ASCII)
-$iexpress = (Get-Command iexpress.exe -ErrorAction Stop).Source
-$build = Start-Process -FilePath $iexpress -ArgumentList @("/N", "/Q", $sedPath) -Wait -PassThru -WindowStyle Hidden
-if ($build.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $temporaryExe)) { throw "단일 EXE 설치 패키지 생성에 실패했습니다." }
-Copy-Item -LiteralPath $temporaryExe -Destination $finalExe -Force
-Remove-Item -LiteralPath $iexpressRoot -Recurse -Force
-Write-Host "단일 EXE 생성 완료: $finalExe"
+Copy-Item -LiteralPath (Join-Path $projectRoot "installer\WITHBID-PPBM-온라인설치.cmd") -Destination $distRoot -Force
+Write-Host "온라인 설치 CMD 생성 완료: $(Join-Path $distRoot 'WITHBID-PPBM-온라인설치.cmd')"
