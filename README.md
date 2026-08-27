@@ -30,7 +30,7 @@ npm start
 
 ## 데스크탑 설치 패키지
 
-`npm run package:windows`를 실행하면 `dist/WITHBID-PPBM-Desktop-Setup-0.2.0.zip`이 생성됩니다. 사용자 PC에서 압축을 푼 뒤 `Install-WITHBID-PPBM.cmd`를 더블클릭하면 사용자별 앱 폴더와 바탕화면/시작 메뉴 바로가기가 설치됩니다. Node.js 실행파일이 패키지에 포함되므로 사용자 PC에 Node.js를 별도로 설치할 필요가 없습니다.
+`npm run package:windows`를 실행하면 `dist/WITHBID-PPBM-Desktop-Setup-0.2.1.zip`이 생성됩니다. 사용자 PC에서 압축을 푼 뒤 `Install-WITHBID-PPBM.cmd`를 더블클릭하면 사용자별 앱 폴더와 바탕화면/시작 메뉴 바로가기가 설치됩니다. Node.js 실행파일이 패키지에 포함되므로 사용자 PC에 Node.js를 별도로 설치할 필요가 없습니다.
 
 앱은 NAS 계정이나 비밀번호를 저장하지 않습니다. 사용자가 파일 탐색기에서 `\\Withusnas1\입찰관리`에 먼저 로그인하면, 바탕화면 실행기가 그 Windows 사용자 세션의 SMB 권한을 상속하고 읽기·쓰기 권한을 확인한 뒤 서버를 실행합니다.
 

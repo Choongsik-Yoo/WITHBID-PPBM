@@ -26,15 +26,27 @@ try {
     throw "NAS 폴더는 열리지만 파일 쓰기 권한이 없습니다. 공공조달 담당자 계정의 NAS 권한을 확인하세요."
   }
 
-  $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+  $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+  $needsStart = -not $listener
   if ($listener) {
     try {
       $running = Invoke-RestMethod -TimeoutSec 2 "http://127.0.0.1:$port/api/app-info"
       if ($running.app -ne "WITHBID-PPBM" -or $running.dataRoot -ne $dataRoot) { throw "잘못된 서버" }
     } catch {
-      throw "4317 포트를 다른 프로그램 또는 이전 WITHBID 서버가 사용 중입니다. 작업 관리자에서 기존 Node.js를 종료한 뒤 다시 실행하세요."
+      # v0.2.0 이전 WITHBID는 app-info가 없으므로 인증 설정 API로 식별한 뒤에만 교체합니다.
+      try {
+        $legacy = Invoke-RestMethod -TimeoutSec 2 "http://127.0.0.1:$port/api/auth/config"
+        if ($null -eq $legacy.configured -or $null -eq $legacy.userCount) { throw "WITHBID가 아님" }
+        Stop-Process -Id $listener.OwningProcess -Force -ErrorAction Stop
+        Start-Sleep -Milliseconds 500
+        $needsStart = $true
+      } catch {
+        throw "4317 포트를 다른 프로그램이 사용 중입니다. 해당 프로그램을 종료한 뒤 다시 실행하세요."
+      }
     }
-  } else {
+  }
+
+  if ($needsStart) {
     $bundledNode = Join-Path $projectRoot "runtime\node.exe"
     $node = if (Test-Path -LiteralPath $bundledNode) { $bundledNode } else { (Get-Command node.exe -ErrorAction Stop).Source }
     $env:DATA_ROOT = $dataRoot
