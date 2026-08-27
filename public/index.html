@@ -8,13 +8,27 @@
   <link rel="stylesheet" href="/automation.css">
 </head>
 <body>
+  <section id="authGate" class="auth-gate">
+    <div class="auth-card">
+      <span class="brand-mark auth-logo">W</span>
+      <p class="eyebrow">AUTHORIZED USERS ONLY</p>
+      <h1>WITHBID-PPBM 로그인</h1>
+      <p id="authMessage" class="lead">승인된 공공조달 담당자 Google 계정으로 로그인하세요.</p>
+      <div id="googleSignIn"></div>
+      <form id="authBootstrapForm" class="form-stack" hidden>
+        <label>Google OAuth 웹 클라이언트 ID<input name="clientId" required placeholder="000000000000-xxxx.apps.googleusercontent.com"></label>
+        <small>관리자가 Google Cloud Console에서 발급한 웹 클라이언트 ID를 최초 1회 등록합니다.</small>
+        <button class="primary full" type="submit">Google 인증 설정</button>
+      </form>
+    </div>
+  </section>
   <header class="topbar">
     <div class="brand"><span class="brand-mark">W</span><div><strong>WITHBID-PPBM</strong><small>Procurement Price & Bid Manager</small></div></div>
-    <span id="connection" class="pill">연결 확인 중</span>
+    <div class="user-area"><span id="currentUser" class="pill">로그인 확인 중</span><button id="logoutButton" class="text-button" type="button" hidden>로그아웃</button><span id="connection" class="pill">연결 확인 중</span></div>
   </header>
   <main>
     <section class="hero">
-      <div><p class="eyebrow">LOCAL PROCUREMENT WORKSPACE</p><h1>조달공고를 근거 중심으로<br>검토하고 견적하세요.</h1><p class="lead">공고 원문과 단가표는 이 PC의 D드라이브에 보관됩니다.</p></div>
+      <div><p class="eyebrow">SHARED PROCUREMENT WORKSPACE</p><h1>조달공고를 근거 중심으로<br>검토하고 견적하세요.</h1><p class="lead">공고 원문과 분석결과는 WITHUSNAS1의 입찰관리 공유폴더에 보관됩니다.</p></div>
       <div class="summary-card"><span>데이터 저장 위치</span><strong id="dataRoot">확인 중…</strong><div class="stats"><div><b id="noticeCount">0</b><small>진행 공고</small></div><div><b id="priceCount">0</b><small>등록 단가</small></div></div></div>
     </section>
 
@@ -110,9 +124,19 @@
         <p class="wide privacy-note">공공데이터포털의 ‘조달청_나라장터 입찰공고정보서비스’ 활용신청 후 발급된 일반 인증키를 입력하세요.</p>
         <div class="wide actions"><button class="primary" type="submit">나라장터 API 설정 저장</button></div>
       </form>
+      <section id="userManagement" class="panel settings-gap">
+        <div class="section-heading compact"><div><p class="eyebrow">ACCESS CONTROL</p><h2>사용 허용 계정</h2></div></div>
+        <form id="userForm" class="user-form">
+          <input name="email" type="email" required placeholder="직원 Google 이메일">
+          <input name="name" required placeholder="직원 이름">
+          <select name="role"><option value="member">일반 사용자</option><option value="admin">관리자</option></select>
+          <button class="primary" type="submit">사용자 추가</button>
+        </form>
+        <div id="userList" class="user-list"></div>
+      </section>
     </section>
   </main>
   <div id="toast" role="status"></div>
-  <script type="module" src="/app.js?v=20260721-3"></script>
+  <script type="module" src="/app.js?v=20260827-1"></script>
 </body>
 </html>

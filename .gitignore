@@ -9,4 +9,7 @@ coverage/
 company_price_list*
 openai.json
 g2b.json
+config/authorized-users.local.json
+.auth-test-data/
+outputs/
 !samples/company_price_list_sample.csv

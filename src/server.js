@@ -14,6 +14,7 @@ import { extractNoticeNumber, fetchNoticePage } from "./lib/web-source.js";
 import { attachmentName, attachmentUrl, fetchG2bNotice, g2bToText, parseG2bLink } from "./lib/g2b.js";
 import { quoteWorkbookBuffer, reportToDashboardHtml } from "./lib/result-artifacts.js";
 import { convertHancomAttachments } from "./lib/hancom.js";
+import { cookieValue, createSession, newSecret, normalizeUsers, readSession, verifyGoogleCredential } from "./lib/auth.js";
 
 const config = getConfig();
 const appRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -22,10 +23,19 @@ const hancomConverterScript=path.join(appRoot,"scripts","convert-hancom-to-pdf.p
 const stateFile = path.join(config.dataRoot, "_데이터베이스", "app-state.json");
 const openaiSettingsFile = path.join(config.dataRoot, "_설정", "openai.json");
 const g2bSettingsFile = path.join(config.dataRoot, "_설정", "g2b.json");
+const authSettingsFile = path.join(config.dataRoot, "_설정", "auth.json");
+const authorizedUsersFile = process.env.AUTHORIZED_USERS_FILE || path.join(appRoot,"config","authorized-users.local.json");
 const progressJobs=new Map();
 function updateProgress(jobId,percent,stage,message,status="running"){if(!jobId)return;progressJobs.set(jobId,{jobId,percent,stage,message,status,updatedAt:new Date().toISOString()});setTimeout(()=>progressJobs.delete(jobId),30*60*1000).unref();}
 
 await ensureDataLayout(config.dataRoot);
+const initialAuth = await readJson(authSettingsFile, {});
+const seededUsers = await readJson(authorizedUsersFile, []);
+await writeJson(authSettingsFile, {
+  clientId:String(process.env.GOOGLE_CLIENT_ID || initialAuth.clientId || "").trim(),
+  sessionSecret:initialAuth.sessionSecret || newSecret(),
+  users:Array.isArray(initialAuth.users) ? normalizeUsers(initialAuth.users) : normalizeUsers(seededUsers),
+});
 
 function json(response, status, value) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -56,6 +66,15 @@ async function saveState(state) {
   await writeJson(stateFile, state);
 }
 
+async function loadAuthSettings() {
+  const value = await readJson(authSettingsFile, {});
+  return { ...value, users:Array.isArray(value.users) ? normalizeUsers(value.users) : [] };
+}
+
+function requireAdmin(request) {
+  if (request.user?.role !== "admin") throw new Error("관리자 권한이 필요합니다.");
+}
+
 async function serveStatic(request, response) {
   const url = new URL(request.url, "http://localhost");
   const requested = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
@@ -77,6 +96,57 @@ const server = http.createServer(async (request, response) => {
   let activeJobId=null;
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
+    const auth = await loadAuthSettings();
+    const authEnabled = Boolean(auth.clientId);
+    const sessionUser = authEnabled ? readSession(cookieValue(request, "withbid_session"), auth.sessionSecret, auth.users) : null;
+    const publicAuthPaths = new Set(["/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
+
+    if (request.method === "GET" && url.pathname === "/api/auth/config") {
+      return json(response, 200, { configured:authEnabled, clientId:auth.clientId || null, userCount:auth.users.filter((item)=>item.enabled).length });
+    }
+    if (request.method === "POST" && url.pathname === "/api/auth/bootstrap") {
+      if (authEnabled) throw new Error("Google 인증 설정은 이미 완료되었습니다.");
+      const input=await bodyJson(request); const clientId=String(input.clientId || "").trim();
+      if (!/^[0-9]+-[a-z0-9_-]+\.apps\.googleusercontent\.com$/i.test(clientId)) throw new Error("올바른 Google OAuth 웹 클라이언트 ID를 입력하세요.");
+      await writeJson(authSettingsFile,{...auth,clientId});
+      return json(response,200,{configured:true,clientId,userCount:auth.users.filter((item)=>item.enabled).length});
+    }
+    if (request.method === "POST" && url.pathname === "/api/auth/google") {
+      if (!authEnabled) throw new Error("관리자가 Google OAuth Client ID를 먼저 등록해야 합니다.");
+      const input=await bodyJson(request); const profile=await verifyGoogleCredential(input.credential,auth.clientId);
+      const user=auth.users.find((item)=>item.email===profile.email&&item.enabled);
+      if (!user) throw new Error("사용이 승인되지 않은 Google 계정입니다. 관리자에게 문의하세요.");
+      response.setHeader("Set-Cookie",`withbid_session=${encodeURIComponent(createSession(user,auth.sessionSecret))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800`);
+      return json(response,200,{user});
+    }
+    if (request.method === "POST" && url.pathname === "/api/auth/logout") {
+      response.setHeader("Set-Cookie","withbid_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+      return json(response,200,{ok:true});
+    }
+    if (request.method === "GET" && url.pathname === "/api/auth/me") {
+      return json(response,200,{configured:authEnabled,authenticated:Boolean(sessionUser),user:sessionUser});
+    }
+    if (url.pathname.startsWith("/api/") && !publicAuthPaths.has(url.pathname) && authEnabled && !sessionUser) {
+      return json(response,401,{error:"Google 로그인이 필요합니다."});
+    }
+    request.user=sessionUser;
+
+    if (request.method === "GET" && url.pathname === "/api/admin/users") {
+      requireAdmin(request); return json(response,200,auth.users);
+    }
+    if (request.method === "POST" && url.pathname === "/api/admin/users") {
+      requireAdmin(request); const input=await bodyJson(request);
+      const email=String(input.email||"").trim().toLowerCase(); const name=String(input.name||"").trim(); const role=input.role==="admin"?"admin":"member";
+      if(!/^\S+@\S+\.\S+$/.test(email)||!name)throw new Error("직원 이름과 올바른 Google 이메일을 입력하세요.");
+      const users=auth.users.filter((item)=>item.email!==email);users.push({name,email,role,enabled:true});
+      await writeJson(authSettingsFile,{...auth,users});return json(response,201,{name,email,role,enabled:true});
+    }
+    if (request.method === "DELETE" && url.pathname.startsWith("/api/admin/users/")) {
+      requireAdmin(request); const email=decodeURIComponent(url.pathname.slice("/api/admin/users/".length)).toLowerCase();
+      if(email===request.user.email)throw new Error("현재 로그인한 관리자 계정은 삭제할 수 없습니다.");
+      const users=auth.users.filter((item)=>item.email!==email);if(users.length===auth.users.length)throw new Error("사용자를 찾지 못했습니다.");
+      await writeJson(authSettingsFile,{...auth,users});return json(response,200,{ok:true});
+    }
     if (request.method === "GET" && url.pathname === "/api/status") {
       const state = await loadState();
       return json(response, 200, { dataRoot: config.dataRoot, noticeCount: state.notices.length, priceCount: state.priceList.items.length, priceImportedAt: state.priceList.importedAt });
@@ -87,9 +157,11 @@ const server = http.createServer(async (request, response) => {
       return json(response, 200, state.notices);
     }
     if (request.method === "GET" && url.pathname === "/api/settings/openai") {
+      requireAdmin(request);
       return json(response, 200, redactSettings(await readJson(openaiSettingsFile, {})));
     }
     if (request.method === "POST" && url.pathname === "/api/settings/openai") {
+      requireAdmin(request);
       const input = await bodyJson(request);
       const previous = await readJson(openaiSettingsFile, {});
       const settings = { apiKey:String(input.apiKey || previous.apiKey || "").trim(), extractionModel:String(input.extractionModel || "gpt-5.6-luna"), analysisModel:String(input.analysisModel || "gpt-5.6-terra") };
@@ -97,8 +169,8 @@ const server = http.createServer(async (request, response) => {
       await writeJson(openaiSettingsFile, settings);
       return json(response, 200, redactSettings(settings));
     }
-    if (request.method === "GET" && url.pathname === "/api/settings/g2b") { const value=await readJson(g2bSettingsFile,{}); return json(response,200,{configured:Boolean(value.apiKey),keyHint:value.apiKey?`${value.apiKey.slice(0,4)}…${value.apiKey.slice(-4)}`:""}); }
-    if (request.method === "POST" && url.pathname === "/api/settings/g2b") { const input=await bodyJson(request); const previous=await readJson(g2bSettingsFile,{}); const apiKey=String(input.apiKey||previous.apiKey||"").trim(); if(!apiKey) throw new Error("나라장터 API 키를 입력해 주세요."); await writeJson(g2bSettingsFile,{apiKey}); return json(response,200,{configured:true,keyHint:`${apiKey.slice(0,4)}…${apiKey.slice(-4)}`}); }
+    if (request.method === "GET" && url.pathname === "/api/settings/g2b") { requireAdmin(request); const value=await readJson(g2bSettingsFile,{}); return json(response,200,{configured:Boolean(value.apiKey),keyHint:value.apiKey?`${value.apiKey.slice(0,4)}…${value.apiKey.slice(-4)}`:""}); }
+    if (request.method === "POST" && url.pathname === "/api/settings/g2b") { requireAdmin(request); const input=await bodyJson(request); const previous=await readJson(g2bSettingsFile,{}); const apiKey=String(input.apiKey||previous.apiKey||"").trim(); if(!apiKey) throw new Error("나라장터 API 키를 입력해 주세요."); await writeJson(g2bSettingsFile,{apiKey}); return json(response,200,{configured:true,keyHint:`${apiKey.slice(0,4)}…${apiKey.slice(-4)}`}); }
     if (request.method === "POST" && url.pathname === "/api/automation/analyze-link") {
       const input = await bodyJson(request);
       activeJobId=/^[a-zA-Z0-9-]{8,80}$/.test(String(input.jobId||""))?String(input.jobId):null;updateProgress(activeJobId,3,"공고 조회","API 설정과 공고 링크를 확인하고 있습니다.");

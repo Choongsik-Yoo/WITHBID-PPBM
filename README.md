@@ -1,11 +1,12 @@
 # WITHBID-PPBM
 
-조달공고 원문, 자사 단가표, 가격 근거와 분석 결과를 Windows PC의 `D:\입찰관리`에 보관하는 로컬 웹앱입니다. GitHub에는 코드와 테스트만 저장합니다.
+조달공고 원문, 자사 단가표, 가격 근거와 분석 결과를 회사 NAS의 `\\WITHUSNAS1\입찰관리`에 보관하는 Windows용 업무 앱입니다. GitHub에는 코드와 테스트만 저장합니다.
 
 ## 현재 구현된 기능
 
 - 로컬 전용 대시보드 (`127.0.0.1`)
-- `D:\입찰관리` 기본 폴더 자동 생성
+- 승인된 Google 계정 로그인 및 관리자/일반 사용자 권한 분리
+- `\\WITHUSNAS1\입찰관리` 공유폴더 저장
 - 공고 기본정보 등록 및 공고별 작업 폴더 생성
 - CSV/XLSX company price list 업로드, 원본·정규화 데이터 보관
 - 자사 단가표 모델명/부품번호 우선 검색
@@ -25,7 +26,13 @@ npm start
 
 브라우저에서 `http://127.0.0.1:4317`을 엽니다. 또는 `scripts\start-withbid.cmd`를 더블클릭합니다.
 
-다른 저장 위치를 시험하려면 실행 전에 `DATA_ROOT` 환경변수를 지정합니다. 운영 기본값은 `D:\입찰관리`입니다.
+다른 저장 위치를 시험하려면 실행 전에 `DATA_ROOT` 환경변수를 지정합니다. 운영 기본값은 `\\WITHUSNAS1\입찰관리`입니다. Windows에서 해당 NAS 공유폴더에 먼저 로그인되어 있어야 합니다.
+
+## Google 사용자 인증
+
+최초 실행 시 관리자가 Google Cloud Console에서 발급한 OAuth 2.0 웹 클라이언트 ID를 등록합니다. 승인 사용자 목록은 GitHub에 커밋하지 않으며, 최초 운영 설정 후 NAS의 `_설정/auth.json`에서 중앙 관리됩니다.
+
+개발 PC에서 최초 승인목록을 준비할 때는 `config/authorized-users.local.json`을 사용합니다. 이 파일은 `.gitignore`에 포함되어 실제 Gmail 주소가 GitHub에 노출되지 않습니다. Google OAuth의 승인된 JavaScript 원본에는 `http://127.0.0.1:4317`을 등록해야 합니다.
 
 ## 단가표 열
 

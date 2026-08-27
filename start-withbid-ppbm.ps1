@@ -2,7 +2,7 @@
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $appUrl = "http://127.0.0.1:4317/"
-$dataRoot = "D:\입찰관리"
+$dataRoot = "\\WITHUSNAS1\입찰관리"
 $port = 4317
 
 function Show-ErrorMessage([string]$message) {
@@ -16,6 +16,9 @@ function Show-ErrorMessage([string]$message) {
 }
 
 try {
+  if (-not (Test-Path -LiteralPath $dataRoot)) {
+    throw "WITHUSNAS1의 입찰관리 공유폴더에 연결할 수 없습니다. 사내 네트워크와 NAS 로그인 상태를 확인하세요."
+  }
   $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
 
   if (-not $listener) {

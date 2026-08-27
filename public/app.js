@@ -61,6 +61,46 @@ function escapeHtml(value) {
 
 function formObject(form) { return Object.fromEntries(new FormData(form).entries()); }
 
+let signedInUser = null;
+
+function loadGoogleIdentity() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.id) return resolve();
+    const script=document.createElement("script");script.src="https://accounts.google.com/gsi/client";script.async=true;script.defer=true;
+    script.onload=resolve;script.onerror=()=>reject(new Error("Google 로그인 서비스를 불러오지 못했습니다."));document.head.appendChild(script);
+  });
+}
+
+async function handleGoogleCredential(result) {
+  try {
+    const response=await api("/api/auth/google",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({credential:result.credential})});
+    activateApp(response.user); toast(`${response.user.name}님, 로그인되었습니다.`);
+  } catch(error){toast(error.message,true);$("#authMessage").textContent=error.message;}
+}
+
+function activateApp(user) {
+  signedInUser=user; document.body.classList.remove("auth-pending"); $("#authGate").hidden=true;
+  $("#currentUser").textContent=`${user.name} · ${user.role==="admin"?"관리자":"사용자"}`;$("#logoutButton").hidden=false;
+  const admin=user.role==="admin";document.querySelector('[data-view="settings"]').hidden=!admin;
+  if(!admin&&$("#settings").classList.contains("active"))showView("dashboard");
+  refresh();if(admin){loadOpenAISettings();loadG2bSettings();loadUsers();}
+}
+
+async function initializeAuth() {
+  document.body.classList.add("auth-pending");
+  try {
+    const [config,session]=await Promise.all([api("/api/auth/config"),api("/api/auth/me")]);
+    if(session.authenticated)return activateApp(session.user);
+    $("#authGate").hidden=false;
+    if(!config.configured){$("#authMessage").textContent="관리자가 Google OAuth 웹 클라이언트 ID를 최초 1회 등록해야 합니다.";$("#authBootstrapForm").hidden=false;return;}
+    await loadGoogleIdentity();
+    google.accounts.id.initialize({client_id:config.clientId,callback:handleGoogleCredential,auto_select:false,cancel_on_tap_outside:false});
+    google.accounts.id.renderButton($("#googleSignIn"),{theme:"outline",size:"large",shape:"pill",text:"signin_with",locale:"ko",width:320});
+  } catch(error){$("#authGate").hidden=false;$("#authMessage").textContent=error.message;toast(error.message,true);}
+}
+
+async function loadUsers(){try{const users=await api("/api/admin/users");$("#userList").innerHTML=users.map((user)=>`<div class="user-row"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span><span class="role">${user.role}</span><button class="danger" type="button" data-delete-user="${encodeURIComponent(user.email)}" ${user.email===signedInUser?.email?"disabled":""}>삭제</button></div>`).join("");}catch(error){toast(error.message,true);}}
+
 const progressStages=["공고 조회","첨부 다운로드","한컴문서 변환","AI 문서 추출","단가표 조회","외부 가격 검색","참가 판단","결과 저장"];
 function renderProgress(progress){
   const panel=$("#analysisProgress"); panel.hidden=false; panel.classList.toggle("failed",progress.status==="failed");
@@ -152,4 +192,9 @@ $("#autoAnalyzeForm").addEventListener("submit", async (event) => {
 
 $("#g2bSettingsForm").addEventListener("submit",async(event)=>{event.preventDefault();const form=event.currentTarget;try{const result=await api("/api/settings/g2b",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(form))});form.elements.apiKey.value="";$("#g2bKeyStatus").textContent=`등록됨 (${result.keyHint})`;toast("나라장터 API 설정을 저장했습니다.");}catch(error){toast(error.message,true);}});
 
-refresh(); loadOpenAISettings(); loadG2bSettings();
+$("#authBootstrapForm").addEventListener("submit",async(event)=>{event.preventDefault();try{await api("/api/auth/bootstrap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(event.currentTarget))});location.reload();}catch(error){toast(error.message,true);}});
+$("#logoutButton").addEventListener("click",async()=>{await api("/api/auth/logout",{method:"POST"});location.reload();});
+$("#userForm").addEventListener("submit",async(event)=>{event.preventDefault();try{await api("/api/admin/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(event.currentTarget))});event.currentTarget.reset();await loadUsers();toast("사용자를 추가했습니다.");}catch(error){toast(error.message,true);}});
+$("#userList").addEventListener("click",async(event)=>{const button=event.target.closest("[data-delete-user]");if(!button)return;if(!confirm("이 사용자의 앱 접근 권한을 삭제할까요?"))return;try{await api(`/api/admin/users/${button.dataset.deleteUser}`,{method:"DELETE"});await loadUsers();toast("사용자 접근 권한을 삭제했습니다.");}catch(error){toast(error.message,true);}});
+
+initializeAuth();
