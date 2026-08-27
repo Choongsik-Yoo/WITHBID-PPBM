@@ -31,7 +31,7 @@ npm start
 
 ## 데스크탑 설치 패키지
 
-`npm run package:windows`를 실행하면 `dist/WITHBID-PPBM-온라인설치.cmd`, 릴리스용 앱 묶음, ZIP 보조 패키지가 생성됩니다. 회사 Windows 애플리케이션 제어 정책이 서명되지 않은 EXE를 차단하므로 EXE는 배포하지 않습니다. 사용자는 온라인 설치 CMD 하나만 더블클릭하면 되며, Windows 기본 curl·PowerShell이 GitHub 릴리스에서 앱을 내려받아 진행 창과 함께 설치합니다. Node.js는 별도로 설치할 필요가 없습니다.
+`npm run package:windows`를 실행하면 `dist/Install-WITHBID-PPBM-Online.cmd`, 릴리스용 앱 묶음, ZIP 보조 패키지가 생성됩니다. 회사 Windows 애플리케이션 제어 정책이 서명되지 않은 EXE를 차단하므로 EXE는 배포하지 않습니다. CMD 인코딩 오류를 방지하기 위해 온라인 설치 CMD는 파일명과 명령을 ASCII로 유지합니다. 사용자는 이 CMD 하나만 더블클릭하면 되며, Windows 기본 curl·PowerShell이 GitHub 릴리스에서 앱을 내려받아 진행 창과 함께 설치합니다. Node.js는 별도로 설치할 필요가 없습니다.
 
 앱은 NAS 계정이나 비밀번호를 저장하지 않습니다. 사용자가 파일 탐색기에서 `\\Withusnas1\입찰관리`에 먼저 로그인하면, 바탕화면 실행기가 그 Windows 사용자 세션의 SMB 권한을 상속하고 읽기·쓰기 권한을 확인한 뒤 서버를 실행합니다.
 
