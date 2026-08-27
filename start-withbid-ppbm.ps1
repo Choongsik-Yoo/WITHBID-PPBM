@@ -2,9 +2,31 @@
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $appUrl = "http://127.0.0.1:4317/"
-$dataRoot = "\\Withusnas1\입찰관리"
+$nasCandidates = @("\\Withusnas1\입찰관리", "\\192.168.0.240\입찰관리")
+$dataRoot = $null
 $port = 4317
 $pidFile = Join-Path $env:LOCALAPPDATA "WITHBID-PPBM\server.pid"
+$logFile = Join-Path $env:LOCALAPPDATA "WITHBID-PPBM\launcher.log"
+
+function Write-LauncherLog([string]$message) {
+  New-Item -ItemType Directory -Path (Split-Path -Parent $logFile) -Force | Out-Null
+  Add-Content -LiteralPath $logFile -Value ("{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $message) -Encoding UTF8
+}
+
+function Find-NasRoot {
+  foreach ($candidate in $nasCandidates) {
+    try {
+      if (Test-Path -LiteralPath $candidate -ErrorAction Stop) {
+        Write-LauncherLog "NAS 연결 확인: $candidate"
+        return $candidate
+      }
+      Write-LauncherLog "NAS 경로 없음: $candidate"
+    } catch {
+      Write-LauncherLog "NAS 접근 실패: $candidate / $($_.Exception.Message)"
+    }
+  }
+  return $null
+}
 
 function Show-ErrorMessage([string]$message) {
   Add-Type -AssemblyName PresentationFramework
@@ -12,8 +34,19 @@ function Show-ErrorMessage([string]$message) {
 }
 
 try {
-  if (-not (Test-Path -LiteralPath $dataRoot)) {
-    throw "NAS 입찰관리 공유폴더에 연결할 수 없습니다.`n`n파일 탐색기에서 \\Withusnas1\입찰관리 폴더를 먼저 열어 NAS 로그인을 완료한 뒤 다시 실행하세요."
+  Write-LauncherLog "실행 시작: $env:USERNAME"
+  $dataRoot = Find-NasRoot
+  if (-not $dataRoot) {
+    Start-Process explorer.exe -ArgumentList $nasCandidates[0]
+    Add-Type -AssemblyName PresentationFramework
+    $answer = [System.Windows.MessageBox]::Show(
+      "NAS 로그인 창이 열렸습니다.`n`n파일 탐색기에서 NAS 로그인을 완료하고 입찰관리 폴더가 열린 것을 확인한 다음 [다시 시도]를 누르세요.",
+      "WITHBID-PPBM NAS 연결", "RetryCancel", "Information"
+    )
+    if ($answer -eq [System.Windows.MessageBoxResult]::Retry) { $dataRoot = Find-NasRoot }
+    if (-not $dataRoot) {
+      throw "NAS 입찰관리 공유폴더에 연결할 수 없습니다.`n`n확인 경로:`n\\Withusnas1\입찰관리`n\\192.168.0.240\입찰관리`n`n진단 로그: $logFile"
+    }
   }
 
   # NAS 암호는 앱에 보관하지 않습니다. 현재 Windows 사용자의 SMB 세션을 사용합니다.
@@ -69,6 +102,7 @@ try {
 
   Start-Process $appUrl
 } catch {
+  Write-LauncherLog "실행 오류: $($_.Exception.Message)"
   Show-ErrorMessage $_.Exception.Message
   exit 1
 }
