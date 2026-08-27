@@ -11,8 +11,13 @@ function toast(message, error = false) {
 
 async function api(url, options = {}) {
   const response = await fetch(url, options);
-  const value = await response.json();
-  if (!response.ok) throw new Error(value.error || "요청에 실패했습니다.");
+  const value = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 404 && url.startsWith("/api/auth/")) {
+      throw new Error("현재 앱 서버가 이전 버전입니다. 바탕화면의 WITHBID-PPBM 아이콘으로 서버를 다시 실행하세요.");
+    }
+    throw new Error(value.error || "요청에 실패했습니다.");
+  }
   return value;
 }
 
@@ -192,7 +197,26 @@ $("#autoAnalyzeForm").addEventListener("submit", async (event) => {
 
 $("#g2bSettingsForm").addEventListener("submit",async(event)=>{event.preventDefault();const form=event.currentTarget;try{const result=await api("/api/settings/g2b",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(form))});form.elements.apiKey.value="";$("#g2bKeyStatus").textContent=`등록됨 (${result.keyHint})`;toast("나라장터 API 설정을 저장했습니다.");}catch(error){toast(error.message,true);}});
 
-$("#authBootstrapForm").addEventListener("submit",async(event)=>{event.preventDefault();try{await api("/api/auth/bootstrap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(event.currentTarget))});location.reload();}catch(error){toast(error.message,true);}});
+$("#authBootstrapForm").addEventListener("submit",async(event)=>{
+  event.preventDefault();
+  const form=event.currentTarget;
+  const clientId=String(new FormData(form).get("clientId")||"").trim();
+  if(!/^[0-9]+-[a-z0-9_-]+\.apps\.googleusercontent\.com$/i.test(clientId)){
+    toast(clientId.includes("@gmail.com")?"Gmail 주소가 아니라 Google Cloud에서 발급한 OAuth 웹 클라이언트 ID를 입력하세요.":"클라이언트 ID는 000…-xxxx.apps.googleusercontent.com 형식이어야 합니다.",true);
+    return;
+  }
+  const button=form.querySelector('button[type="submit"]');
+  button.disabled=true;
+  button.textContent="설정 저장 중…";
+  try{
+    await api("/api/auth/bootstrap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({clientId})});
+    location.reload();
+  }catch(error){
+    toast(error.message,true);
+    button.disabled=false;
+    button.textContent="Google 인증 설정";
+  }
+});
 $("#logoutButton").addEventListener("click",async()=>{await api("/api/auth/logout",{method:"POST"});location.reload();});
 $("#userForm").addEventListener("submit",async(event)=>{event.preventDefault();try{await api("/api/admin/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(event.currentTarget))});event.currentTarget.reset();await loadUsers();toast("사용자를 추가했습니다.");}catch(error){toast(error.message,true);}});
 $("#userList").addEventListener("click",async(event)=>{const button=event.target.closest("[data-delete-user]");if(!button)return;if(!confirm("이 사용자의 앱 접근 권한을 삭제할까요?"))return;try{await api(`/api/admin/users/${button.dataset.deleteUser}`,{method:"DELETE"});await loadUsers();toast("사용자 접근 권한을 삭제했습니다.");}catch(error){toast(error.message,true);}});

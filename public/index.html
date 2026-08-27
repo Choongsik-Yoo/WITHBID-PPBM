@@ -16,8 +16,8 @@
       <p id="authMessage" class="lead">승인된 공공조달 담당자 Google 계정으로 로그인하세요.</p>
       <div id="googleSignIn"></div>
       <form id="authBootstrapForm" class="form-stack" hidden>
-        <label>Google OAuth 웹 클라이언트 ID<input name="clientId" required placeholder="000000000000-xxxx.apps.googleusercontent.com"></label>
-        <small>관리자가 Google Cloud Console에서 발급한 웹 클라이언트 ID를 최초 1회 등록합니다.</small>
+        <label>Google OAuth 웹 클라이언트 ID (Gmail 주소 아님)<input name="clientId" required autocomplete="off" placeholder="000000000000-xxxx.apps.googleusercontent.com"></label>
+        <small>관리자가 Google Cloud Console에서 발급한 웹 애플리케이션용 클라이언트 ID를 최초 1회 등록합니다. 직원 Gmail 주소를 입력하는 칸이 아닙니다.</small>
         <button class="primary full" type="submit">Google 인증 설정</button>
       </form>
     </div>
