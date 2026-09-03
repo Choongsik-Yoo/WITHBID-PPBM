@@ -34,7 +34,7 @@ async function refresh() {
     $("#noticeCount").textContent = status.noticeCount;
     $("#priceCount").textContent = status.priceCount;
     $("#noticeList").innerHTML = notices.length ? notices.map((notice) => `
-      <article class="notice-card"><time>${notice.deadline}</time><div><h3>${escapeHtml(notice.title)}</h3><p>${escapeHtml(notice.noticeNumber)} · ${escapeHtml(notice.organization || "기관 미입력")}</p></div><span class="tag">${escapeHtml(notice.status)}</span></article>`).join("") : '<div class="empty">등록된 공고가 없습니다.</div>';
+      <article class="notice-card"><time>${escapeHtml(notice.deadline)}</time><div><h3>${escapeHtml(notice.title)}</h3><p>${escapeHtml(notice.noticeNumber)} · ${escapeHtml(notice.organization || "기관 미입력")}</p></div>${notice.status === "분석완료" ? `<button class="folder-button" type="button" data-open-notice-folder="${escapeHtml(notice.id)}" aria-label="${escapeHtml(notice.title)} 결과 폴더 열기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.75 5.75A1.75 1.75 0 0 1 5.5 4h4.1c.58 0 1.12.29 1.44.77l.82 1.23h6.64c.97 0 1.75.78 1.75 1.75v9.75c0 .97-.78 1.75-1.75 1.75h-13a1.75 1.75 0 0 1-1.75-1.75V5.75Z"/></svg><span>결과 폴더 열기</span></button>` : `<span class="tag">${escapeHtml(notice.status)}</span>`}</article>`).join("") : '<div class="empty">등록된 공고가 없습니다.</div>';
     $("#opalNotice").innerHTML = notices.length
       ? notices.map((notice) => `<option value="${notice.id}">${escapeHtml(notice.noticeNumber)} · ${escapeHtml(notice.title)}</option>`).join("")
       : '<option value="">먼저 공고를 등록하세요</option>';
@@ -125,6 +125,28 @@ $("#noticeForm").addEventListener("submit", async (event) => {
     await api("/api/notices", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(formObject(event.currentTarget)) });
     event.currentTarget.reset(); toast("공고 폴더를 만들었습니다."); showView("dashboard"); await refresh();
   } catch (error) { toast(error.message, true); }
+});
+
+$("#noticeList").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-open-notice-folder]");
+  if (!button) return;
+  const label = button.querySelector("span");
+  const originalLabel = label.textContent;
+  button.disabled = true;
+  label.textContent = "폴더 여는 중…";
+  try {
+    await api("/api/notices/open-folder", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body:JSON.stringify({ noticeId:button.dataset.openNoticeFolder }),
+    });
+    toast("NAS 결과 폴더를 열었습니다.");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    label.textContent = originalLabel;
+  }
 });
 
 $("#priceFile").addEventListener("change", (event) => { $("#fileName").textContent = event.target.files[0]?.name || "선택된 파일 없음"; });

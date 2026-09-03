@@ -1,6 +1,6 @@
 {
   "name": "withbid-ppbm",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "조달공고 분석 및 부품 가격 근거 관리 로컬 앱",
   "type": "module",

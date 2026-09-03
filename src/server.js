@@ -17,6 +17,7 @@ import { convertHancomAttachments } from "./lib/hancom.js";
 import { expandZipAttachments } from "./lib/archives.js";
 import { convertExcelAttachments } from "./lib/excel.js";
 import { cookieValue, createSession, newSecret, normalizeUsers, readSession, verifyGoogleCredential } from "./lib/auth.js";
+import { openNoticeFolder } from "./lib/folder-launcher.js";
 
 const config = getConfig();
 const appRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -105,7 +106,7 @@ const server = http.createServer(async (request, response) => {
     const publicAuthPaths = new Set(["/api/app-info", "/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
 
     if (request.method === "GET" && url.pathname === "/api/app-info") {
-      return json(response, 200, { app: "WITHBID-PPBM", version: "0.4.0", dataRoot: config.dataRoot });
+      return json(response, 200, { app: "WITHBID-PPBM", version: "0.4.1", dataRoot: config.dataRoot });
     }
 
     if (request.method === "GET" && url.pathname === "/api/auth/config") {
@@ -162,6 +163,15 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/api/notices") {
       const state = await loadState();
       return json(response, 200, state.notices);
+    }
+    if (request.method === "POST" && url.pathname === "/api/notices/open-folder") {
+      const input = await bodyJson(request);
+      const state = await loadState();
+      const notice = state.notices.find((item) => item.id === input.noticeId);
+      if (!notice) throw new Error("결과 폴더를 열 공고를 찾지 못했습니다.");
+      if (notice.status !== "분석완료") throw new Error("분석이 완료된 공고만 결과 폴더를 열 수 있습니다.");
+      const folderPath = await openNoticeFolder({ dataRoot:config.dataRoot, folderName:notice.folderName });
+      return json(response, 200, { opened:true, folderPath });
     }
     if (request.method === "GET" && url.pathname === "/api/settings/openai") {
       requireAdmin(request);

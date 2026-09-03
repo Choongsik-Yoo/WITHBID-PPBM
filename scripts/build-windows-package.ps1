@@ -44,7 +44,7 @@ NAS 비밀번호는 앱에 저장되지 않으며 현재 Windows 사용자의 NA
 "@
 Set-Content -LiteralPath (Join-Path $packageRoot "INSTALL-KO.txt") -Value $readme -Encoding UTF8
 
-$zip = Join-Path $distRoot "WITHBID-PPBM-Desktop-Setup-0.4.0.zip"
+$zip = Join-Path $distRoot "WITHBID-PPBM-Desktop-Setup-0.4.1.zip"
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 Compress-Archive -LiteralPath $packageRoot -DestinationPath $zip -CompressionLevel Optimal
 Write-Host "패키지 생성 완료: $zip"

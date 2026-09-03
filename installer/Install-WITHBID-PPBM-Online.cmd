@@ -2,7 +2,7 @@
 setlocal
 title WITHBID-PPBM Online Setup
 set "SETUP_DIR=%TEMP%\WITHBID-PPBM-Setup-%RANDOM%%RANDOM%"
-set "RELEASE_URL=https://github.com/Choongsik-Yoo/WITHBID-PPBM/releases/download/v0.4.0"
+set "RELEASE_URL=https://github.com/Choongsik-Yoo/WITHBID-PPBM/releases/download/v0.4.1"
 mkdir "%SETUP_DIR%" 2>nul
 
 echo.
