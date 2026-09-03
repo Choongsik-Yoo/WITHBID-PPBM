@@ -15,12 +15,14 @@ import { attachmentName, attachmentUrl, fetchG2bNotice, g2bToText, parseG2bLink 
 import { quoteWorkbookBuffer, reportToDashboardHtml } from "./lib/result-artifacts.js";
 import { convertHancomAttachments } from "./lib/hancom.js";
 import { expandZipAttachments } from "./lib/archives.js";
+import { convertExcelAttachments } from "./lib/excel.js";
 import { cookieValue, createSession, newSecret, normalizeUsers, readSession, verifyGoogleCredential } from "./lib/auth.js";
 
 const config = getConfig();
 const appRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const publicRoot = path.join(appRoot, "public");
 const hancomConverterScript=path.join(appRoot,"scripts","convert-hancom-to-pdf.ps1");
+const excelConverterScript=path.join(appRoot,"scripts","convert-excel-to-pdf.ps1");
 const stateFile = path.join(config.dataRoot, "_데이터베이스", "app-state.json");
 const openaiSettingsFile = path.join(config.dataRoot, "_설정", "openai.json");
 const g2bSettingsFile = path.join(config.dataRoot, "_설정", "g2b.json");
@@ -103,7 +105,7 @@ const server = http.createServer(async (request, response) => {
     const publicAuthPaths = new Set(["/api/app-info", "/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
 
     if (request.method === "GET" && url.pathname === "/api/app-info") {
-      return json(response, 200, { app: "WITHBID-PPBM", version: "0.3.7", dataRoot: config.dataRoot });
+      return json(response, 200, { app: "WITHBID-PPBM", version: "0.4.0", dataRoot: config.dataRoot });
     }
 
     if (request.method === "GET" && url.pathname === "/api/auth/config") {
@@ -196,13 +198,17 @@ const server = http.createServer(async (request, response) => {
       const hancomConversion=await convertHancomAttachments(downloadedFiles,{scriptPath:hancomConverterScript});
       downloadedFiles.push(...hancomConversion.converted);
       if(hancomConversion.errors.length)throw new Error(`HWP/HWPX PDF 변환 실패: ${hancomConversion.errors.map(item=>`${item.filename} (${item.error})`).join(", ")}`);
-      updateProgress(activeJobId,43,"AI 문서 추출","공고문과 변환된 PDF에서 요구사항을 추출하고 있습니다.");
+      updateProgress(activeJobId,39,"Excel 문서 변환","압축 내부를 포함한 Excel 문서를 PDF로 변환하고 있습니다.");
+      const excelConversion=await convertExcelAttachments(downloadedFiles,{scriptPath:excelConverterScript});
+      downloadedFiles.push(...excelConversion.converted);
+      if(excelConversion.errors.length)throw new Error(`Excel PDF 변환 실패: ${excelConversion.errors.map(item=>`${item.filename} (${item.error})`).join(", ")}`);
+      updateProgress(activeJobId,46,"AI 문서 추출","공고문과 변환된 PDF에서 요구사항을 추출하고 있습니다.");
       const extraction = await extractNotice({ settings, sourceText, files:downloadedFiles });
       const state = await loadState(); const number=extraction.noticeNumber || extractNoticeNumber(sourceUrl) || `AUTO-${Date.now()}`;
       let notice=state.notices.find(item=>item.noticeNumber===number); if(!notice){notice=await createNotice(config.dataRoot,{noticeNumber:number,title:extraction.title||"공고명 확인 필요",organization:extraction.organization||"",deadline:extraction.deadline||"0000-00-00",sourceUrl:finalUrl});state.notices.unshift(notice);}
       const base = path.join(config.dataRoot, "진행중", notice.folderName);
       await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),sourceText,"utf8");
-      if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); await writeJson(path.join(base,"04_구조화데이터","압축해제_결과.json"),{extracted:archiveExpansion.extracted.map(file=>({filename:file.filename,extractedFrom:file.extractedFrom,size:file.buffer.length})),errors:archiveExpansion.errors,extractedAt:new Date().toISOString()}); await writeJson(path.join(base,"04_구조화데이터","한컴문서_변환결과.json"),{converted:hancomConversion.converted.map(file=>({filename:file.filename,convertedFrom:file.convertedFrom,size:file.buffer.length})),errors:hancomConversion.errors,convertedAt:new Date().toISOString()}); for(const file of downloadedFiles){const target=path.join(base,"02_첨부파일",...String(file.filename).replace(/\\/g,"/").split("/"));await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,file.buffer);} }
+      if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); await writeJson(path.join(base,"04_구조화데이터","압축해제_결과.json"),{extracted:archiveExpansion.extracted.map(file=>({filename:file.filename,extractedFrom:file.extractedFrom,size:file.buffer.length})),errors:archiveExpansion.errors,extractedAt:new Date().toISOString()}); await writeJson(path.join(base,"04_구조화데이터","한컴문서_변환결과.json"),{converted:hancomConversion.converted.map(file=>({filename:file.filename,convertedFrom:file.convertedFrom,size:file.buffer.length})),errors:hancomConversion.errors,convertedAt:new Date().toISOString()}); await writeJson(path.join(base,"04_구조화데이터","엑셀문서_변환결과.json"),{converted:excelConversion.converted.map(file=>({filename:file.filename,convertedFrom:file.convertedFrom,size:file.buffer.length})),errors:excelConversion.errors,convertedAt:new Date().toISOString()}); for(const file of downloadedFiles){const target=path.join(base,"02_첨부파일",...String(file.filename).replace(/\\/g,"/").split("/"));await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,file.buffer);} }
       await writeJson(path.join(base,"04_구조화데이터","AI_추출결과.json"),extraction);
       updateProgress(activeJobId,58,"단가표 조회","자사 단가표를 우선 조회하고 있습니다.");
       const priceableRequirements=extraction.requirements.filter(isPriceableRequirement);

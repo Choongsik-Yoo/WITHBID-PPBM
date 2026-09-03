@@ -9,6 +9,7 @@
 - `\\WITHUSNAS1\입찰관리` 공유폴더 저장
 - 공고 기본정보 등록 및 공고별 작업 폴더 생성
 - ZIP 첨부파일 자동 해제 및 압축 내부 HWP/HWPX의 PDF 자동 변환
+- Excel 첨부파일(XLS/XLSX/XLSM/XLSB)의 PDF 자동 변환 및 분석 포함
 - CSV/XLSX company price list 업로드, 원본·정규화 데이터 보관
 - 자사 단가표 모델명/부품번호 우선 검색
 - 자사 단가가 없을 때 컴퓨존 → 가이드컴 검색 링크 제공
