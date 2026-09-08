@@ -19,12 +19,6 @@ foreach ($item in $items) {
 & npm.cmd ci --omit=dev --ignore-scripts --prefix $appRoot
 if ($LASTEXITCODE -ne 0) { throw "패키지용 Node 의존성 설치에 실패했습니다." }
 
-$localUsers = Join-Path $projectRoot "config\authorized-users.local.json"
-if (Test-Path -LiteralPath $localUsers) {
-  New-Item -ItemType Directory -Path (Join-Path $appRoot "config") -Force | Out-Null
-  Copy-Item -LiteralPath $localUsers -Destination (Join-Path $appRoot "config\authorized-users.local.json") -Force
-}
-
 $node = (Get-Command node.exe -ErrorAction Stop).Source
 Copy-Item -LiteralPath $node -Destination (Join-Path $runtimeRoot "node.exe") -Force
 $payload = Join-Path $packageRoot "WITHBID-PPBM-app.zip"
