@@ -26,6 +26,13 @@ function showView(id) {
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === id));
 }
 
+function noticeActions(notice) {
+  const folderAction = notice.status === "분석완료"
+    ? `<button class="folder-button" type="button" data-open-notice-folder="${escapeHtml(notice.id)}" aria-label="${escapeHtml(notice.title)} 결과 폴더 열기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.75 5.75A1.75 1.75 0 0 1 5.5 4h4.1c.58 0 1.12.29 1.44.77l.82 1.23h6.64c.97 0 1.75.78 1.75 1.75v9.75c0 .97-.78 1.75-1.75 1.75h-13a1.75 1.75 0 0 1-1.75-1.75V5.75Z"/></svg><span>결과 폴더 열기</span></button>`
+    : `<span class="tag ${notice.status === "분석오류" ? "error-tag" : ""}">${escapeHtml(notice.status)}</span>`;
+  return `<div class="notice-actions">${folderAction}<button class="notice-delete-button" type="button" data-delete-notice="${escapeHtml(notice.id)}" aria-label="${escapeHtml(notice.title)} 공고 삭제"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3.5h7l.75 2H20v2H4v-2h3.75l.75-2ZM6 9h12l-.7 10.1A2 2 0 0 1 15.3 21H8.7a2 2 0 0 1-2-1.9L6 9Zm3 2v7h2v-7H9Zm4 0v7h2v-7h-2Z"/></svg><span>공고 삭제</span></button></div>`;
+}
+
 async function refresh() {
   try {
     const [status, notices] = await Promise.all([api("/api/status"), api("/api/notices")]);
@@ -34,7 +41,7 @@ async function refresh() {
     $("#noticeCount").textContent = status.noticeCount;
     $("#priceCount").textContent = status.priceCount;
     $("#noticeList").innerHTML = notices.length ? notices.map((notice) => `
-      <article class="notice-card"><time>${escapeHtml(notice.deadline)}</time><div><h3>${escapeHtml(notice.title)}</h3><p>${escapeHtml(notice.noticeNumber)} · ${escapeHtml(notice.organization || "기관 미입력")}</p></div>${notice.status === "분석완료" ? `<button class="folder-button" type="button" data-open-notice-folder="${escapeHtml(notice.id)}" aria-label="${escapeHtml(notice.title)} 결과 폴더 열기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.75 5.75A1.75 1.75 0 0 1 5.5 4h4.1c.58 0 1.12.29 1.44.77l.82 1.23h6.64c.97 0 1.75.78 1.75 1.75v9.75c0 .97-.78 1.75-1.75 1.75h-13a1.75 1.75 0 0 1-1.75-1.75V5.75Z"/></svg><span>결과 폴더 열기</span></button>` : `<span class="tag">${escapeHtml(notice.status)}</span>`}</article>`).join("") : '<div class="empty">등록된 공고가 없습니다.</div>';
+      <article class="notice-card"><time>${escapeHtml(notice.deadline)}</time><div><h3>${escapeHtml(notice.title)}</h3><p>${escapeHtml(notice.noticeNumber)} · ${escapeHtml(notice.organization || "기관 미입력")}</p>${notice.status === "분석오류" && notice.lastError ? `<p class="notice-error">오류: ${escapeHtml(notice.lastError)}</p>` : ""}</div>${noticeActions(notice)}</article>`).join("") : '<div class="empty">등록된 공고가 없습니다.</div>';
     $("#opalNotice").innerHTML = notices.length
       ? notices.map((notice) => `<option value="${notice.id}">${escapeHtml(notice.noticeNumber)} · ${escapeHtml(notice.title)}</option>`).join("")
       : '<option value="">먼저 공고를 등록하세요</option>';
@@ -106,7 +113,7 @@ async function initializeAuth() {
 
 async function loadUsers(){try{const users=await api("/api/admin/users");$("#userList").innerHTML=users.map((user)=>`<div class="user-row"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span><span class="role">${user.role}</span><button class="danger" type="button" data-delete-user="${encodeURIComponent(user.email)}" ${user.email===signedInUser?.email?"disabled":""}>삭제</button></div>`).join("");}catch(error){toast(error.message,true);}}
 
-const progressStages=["공고 조회","첨부 다운로드","한컴문서 변환","AI 문서 추출","단가표 조회","외부 가격 검색","참가 판단","결과 저장"];
+const progressStages=["공고 조회","첨부 다운로드","압축파일 해제","한컴문서 변환","Excel 문서 변환","AI 문서 추출","단가표 조회","외부 가격 검색","참가 판단","결과 저장"];
 function renderProgress(progress){
   const panel=$("#analysisProgress"); panel.hidden=false; panel.classList.toggle("failed",progress.status==="failed");
   const percent=Math.max(0,Math.min(100,Number(progress.percent)||0));
@@ -146,6 +153,22 @@ $("#noticeList").addEventListener("click", async (event) => {
   } finally {
     button.disabled = false;
     label.textContent = originalLabel;
+  }
+});
+
+$("#noticeList").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-delete-notice]");
+  if (!button) return;
+  if (!confirm("이 공고를 진행 목록에서 삭제할까요?\n\nNAS 작업 폴더는 복구할 수 있도록 '종료\\_삭제됨' 폴더로 이동합니다.")) return;
+  button.disabled = true;
+  const label=button.querySelector("span"); const originalLabel=label.textContent; label.textContent="삭제 중…";
+  try {
+    await api(`/api/notices/${encodeURIComponent(button.dataset.deleteNotice)}`, { method:"DELETE" });
+    await refresh();
+    toast("공고를 삭제했습니다. 기존 작업 폴더는 삭제 보관함으로 이동했습니다.");
+  } catch (error) {
+    button.disabled = false; label.textContent=originalLabel;
+    toast(error.message, true);
   }
 });
 
@@ -214,7 +237,7 @@ $("#autoAnalyzeForm").addEventListener("submit", async (event) => {
   status.textContent="진행 상황을 실시간으로 확인하고 있습니다. 창을 닫지 마세요."; button.disabled=true;
   const poll=async()=>{while(polling){try{const progress=await api(`/api/automation/progress?id=${encodeURIComponent(jobId)}`);renderProgress(progress);}catch{}await new Promise(resolve=>setTimeout(resolve,700));}}; const pollingTask=poll();
   try { const result=await api("/api/automation/analyze-link",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...formObject(form),jobId})}); renderProgress({percent:100,stage:"결과 저장",message:"분석과 파일 저장을 완료했습니다.",status:"completed"}); status.textContent=`${result.report.decision}: ${result.report.summary} — 저장 완료`; form.reset(); await refresh(); toast("자동 분석을 완료했습니다."); }
-  catch(error){ renderProgress({percent:100,stage:"결과 저장",message:error.message,status:"failed"}); status.textContent=error.message; toast(error.message,true); } finally { polling=false; await pollingTask; button.disabled=false; }
+  catch(error){ renderProgress({percent:100,stage:"결과 저장",message:error.message,status:"failed"}); status.textContent=error.message; toast(error.message,true); await refresh(); } finally { polling=false; await pollingTask; button.disabled=false; }
 });
 
 $("#g2bSettingsForm").addEventListener("submit",async(event)=>{event.preventDefault();const form=event.currentTarget;try{const result=await api("/api/settings/g2b",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(form))});form.elements.apiKey.value="";$("#g2bKeyStatus").textContent=`등록됨 (${result.keyHint})`;toast("나라장터 API 설정을 저장했습니다.");}catch(error){toast(error.message,true);}});

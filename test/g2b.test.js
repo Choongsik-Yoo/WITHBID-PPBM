@@ -1,3 +1,4 @@
-import test from "node:test"; import assert from "node:assert/strict"; import { parseG2bLink,attachmentUrl } from "../src/lib/g2b.js";
+import test from "node:test"; import assert from "node:assert/strict"; import { parseG2bLink,attachmentUrl,g2bNoticeMetadata } from "../src/lib/g2b.js";
 test("실제 나라장터 링크에서 공고번호와 차수를 읽는다",()=>assert.deepEqual(parseG2bLink("https://www.g2b.go.kr/link/PNPE027_01/single/?bidPbancNo=R26BK01640471&bidPbancOrd=000"),{bidPbancNo:"R26BK01640471",bidPbancOrd:"000"}));
 test("첨부정보에서 URL을 찾는다",()=>assert.equal(attachmentUrl({atchFileUrl:"https://g2b.go.kr/file"}),"https://g2b.go.kr/file"));
+test("공식 API 공고정보로 분석 시작 폴더의 기본정보를 만든다",()=>assert.deepEqual(g2bNoticeMetadata({detail:{bidNtceNo:"R26BK01713210",bidNtceNm:"워크스테이션 구매",dminsttNm:"중앙대학교 산학협력단",bidClseDt:"20260909",bidClseTm:"100000"}},{sourceUrl:"https://g2b.go.kr/notice"}),{noticeNumber:"R26BK01713210",title:"워크스테이션 구매",organization:"중앙대학교 산학협력단",deadline:"2026-09-09 10:00:00",sourceUrl:"https://g2b.go.kr/notice"}));

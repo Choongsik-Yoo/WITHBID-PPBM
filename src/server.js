@@ -6,12 +6,12 @@ import { getConfig } from "./config.js";
 import { ensureDataLayout, readJson, safeName, sha256, writeJson } from "./lib/files.js";
 import { parsePriceList } from "./lib/price-list.js";
 import { buildExternalSearches, rankCompanyPrices } from "./lib/pricing.js";
-import { createNotice } from "./lib/notices.js";
+import { archiveNoticeFolder, createNotice, ensureNoticeFolder, restoreArchivedNoticeFolder, updateNoticeDetails } from "./lib/notices.js";
 import { buildOpalBundle } from "./lib/opal.js";
 import { analyzeBid, extractNotice, findExternalPrices, redactSettings, reportToMarkdown } from "./lib/openai.js";
 import { inferredSpecificationGroup, isPriceableRequirement } from "./lib/quote-structure.js";
 import { extractNoticeNumber, fetchNoticePage } from "./lib/web-source.js";
-import { attachmentName, attachmentUrl, fetchG2bNotice, g2bToText, parseG2bLink } from "./lib/g2b.js";
+import { attachmentName, attachmentUrl, fetchG2bNotice, g2bNoticeMetadata, g2bToText, parseG2bLink } from "./lib/g2b.js";
 import { quoteWorkbookBuffer, reportToDashboardHtml } from "./lib/result-artifacts.js";
 import { convertHancomAttachments } from "./lib/hancom.js";
 import { expandZipAttachments } from "./lib/archives.js";
@@ -31,6 +31,20 @@ const authSettingsFile = path.join(config.dataRoot, "_설정", "auth.json");
 const authorizedUsersFile = process.env.AUTHORIZED_USERS_FILE || path.join(appRoot,"config","authorized-users.local.json");
 const progressJobs=new Map();
 function updateProgress(jobId,percent,stage,message,status="running"){if(!jobId)return;progressJobs.set(jobId,{jobId,percent,stage,message,status,updatedAt:new Date().toISOString()});setTimeout(()=>progressJobs.delete(jobId),30*60*1000).unref();}
+
+function localDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+}
+
+async function saveAttachmentFiles(base, files) {
+  const attachmentRoot = path.join(base, "02_첨부파일");
+  await fs.mkdir(attachmentRoot, { recursive:true });
+  for (const file of files) {
+    const filename = safeName(path.posix.basename(String(file.filename || "첨부파일").replace(/\\/g,"/")), 120);
+    await fs.writeFile(path.join(attachmentRoot, filename), file.buffer);
+  }
+}
 
 await ensureDataLayout(config.dataRoot);
 const initialAuth = await readJson(authSettingsFile, {});
@@ -98,6 +112,7 @@ async function serveStatic(request, response) {
 
 const server = http.createServer(async (request, response) => {
   let activeJobId=null;
+  let activeNoticeId=null;
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
     const auth = await loadAuthSettings();
@@ -106,7 +121,7 @@ const server = http.createServer(async (request, response) => {
     const publicAuthPaths = new Set(["/api/app-info", "/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
 
     if (request.method === "GET" && url.pathname === "/api/app-info") {
-      return json(response, 200, { app: "WITHBID-PPBM", version: "0.4.1", dataRoot: config.dataRoot });
+      return json(response, 200, { app: "WITHBID-PPBM", version: "0.5.0", dataRoot: config.dataRoot });
     }
 
     if (request.method === "GET" && url.pathname === "/api/auth/config") {
@@ -173,6 +188,18 @@ const server = http.createServer(async (request, response) => {
       const folderPath = await openNoticeFolder({ dataRoot:config.dataRoot, folderName:notice.folderName });
       return json(response, 200, { opened:true, folderPath });
     }
+    if (request.method === "DELETE" && url.pathname.startsWith("/api/notices/")) {
+      const noticeId = decodeURIComponent(url.pathname.slice("/api/notices/".length));
+      const state = await loadState();
+      const index = state.notices.findIndex((item) => item.id === noticeId);
+      if (index < 0) throw new Error("삭제할 공고를 찾지 못했습니다.");
+      const notice = state.notices[index];
+      const archived = await archiveNoticeFolder(config.dataRoot, notice);
+      state.notices.splice(index, 1);
+      try { await saveState(state); }
+      catch (error) { await restoreArchivedNoticeFolder(archived); throw error; }
+      return json(response, 200, { deleted:true, archivedTo:archived?.destination || null });
+    }
     if (request.method === "GET" && url.pathname === "/api/settings/openai") {
       requireAdmin(request);
       return json(response, 200, redactSettings(await readJson(openaiSettingsFile, {})));
@@ -195,30 +222,77 @@ const server = http.createServer(async (request, response) => {
       const g2bSettings = await readJson(g2bSettingsFile, {});
       if (!settings.apiKey) throw new Error("설정에서 OpenAI API 키를 먼저 등록해 주세요.");
       const sourceUrl = String(input.sourceUrl || "").trim();
+      let parsedSource;
+      try { parsedSource = new URL(sourceUrl); }
+      catch { throw new Error("올바른 조달공고 링크를 입력해 주세요."); }
+      if (!/^https?:$/.test(parsedSource.protocol)) throw new Error("HTTP 또는 HTTPS 조달공고 링크만 사용할 수 있습니다.");
+
+      const isG2b = /g2b\.go\.kr$/i.test(parsedSource.hostname) || /\.g2b\.go\.kr$/i.test(parsedSource.hostname);
+      let g2bIds = null;
+      if (isG2b) {
+        if(!g2bSettings.apiKey) throw new Error("설정에서 공공데이터포털 나라장터 API 키를 먼저 등록해 주세요.");
+        g2bIds = parseG2bLink(sourceUrl);
+        if (!g2bIds.bidPbancNo) throw new Error("나라장터 링크에서 공고번호를 찾지 못했습니다.");
+      }
+
+      const initialNoticeNumber = g2bIds?.bidPbancNo || extractNoticeNumber(sourceUrl) || `WEB-${Date.now()}`;
+      const state = await loadState();
+      let notice = state.notices.find((item) => item.noticeNumber === initialNoticeNumber);
+      if (notice) {
+        notice.status="분석중"; notice.analysisStartedAt=new Date().toISOString(); delete notice.lastError; delete notice.failedAt;
+        await ensureNoticeFolder(config.dataRoot, notice);
+      } else {
+        notice=await createNotice(config.dataRoot,{noticeNumber:initialNoticeNumber,title:"공고정보 조회 중",organization:"기관 확인 중",deadline:localDate(),sourceUrl,status:"분석중"});
+        notice.analysisStartedAt=new Date().toISOString();
+        state.notices.unshift(notice);
+        await ensureNoticeFolder(config.dataRoot, notice);
+      }
+      activeNoticeId=notice.id;
+      await saveState(state);
+      let base=path.join(config.dataRoot,"진행중",notice.folderName);
+      updateProgress(activeJobId,7,"공고 조회","공고 작업 폴더를 만들었습니다. 공식 공고정보를 조회하고 있습니다.");
+
       let sourceText, official=null, finalUrl=sourceUrl, downloadedFiles=[];
-      updateProgress(activeJobId,10,"공고 조회","나라장터 공고정보를 조회하고 있습니다.");
-      if (/g2b\.go\.kr/i.test(sourceUrl)) { if(!g2bSettings.apiKey) throw new Error("설정에서 공공데이터포털 나라장터 API 키를 먼저 등록해 주세요."); const ids=parseG2bLink(sourceUrl); official=await fetchG2bNotice({apiKey:g2bSettings.apiKey,...ids}); sourceText=g2bToText(official); for(const [index,item] of official.attachments.entries()){const url=attachmentUrl(item);if(!url)continue;try{const response=await fetch(url,{headers:{"User-Agent":"Mozilla/5.0 Chrome/138.0"}});if(response.ok)downloadedFiles.push({filename:safeName(attachmentName(item,index),100),buffer:Buffer.from(await response.arrayBuffer())});}catch{}} }
-      else { const page=await fetchNoticePage(sourceUrl); sourceText=page.text; finalUrl=page.finalUrl; }
+      if (isG2b) {
+        official=await fetchG2bNotice({apiKey:g2bSettings.apiKey,...g2bIds});
+        sourceText=g2bToText(official);
+        base=await updateNoticeDetails(config.dataRoot,notice,g2bNoticeMetadata(official,{noticeNumber:initialNoticeNumber,title:notice.title,organization:notice.organization,deadline:notice.deadline,sourceUrl}));
+        await saveState(state);
+        await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official);
+        await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),sourceText,"utf8");
+        for(const [index,item] of official.attachments.entries()){
+          const fileUrl=attachmentUrl(item); if(!fileUrl)continue;
+          try{const fileResponse=await fetch(fileUrl,{headers:{"User-Agent":"Mozilla/5.0 Chrome/138.0"}});if(fileResponse.ok)downloadedFiles.push({filename:safeName(attachmentName(item,index),100),buffer:Buffer.from(await fileResponse.arrayBuffer())});}catch{}
+        }
+        await saveAttachmentFiles(base,downloadedFiles);
+      } else {
+        const page=await fetchNoticePage(sourceUrl);sourceText=page.text;finalUrl=page.finalUrl;
+        await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),sourceText,"utf8");
+      }
       updateProgress(activeJobId,25,"첨부 다운로드",`${downloadedFiles.length}개 첨부파일을 내려받았습니다.`);
       updateProgress(activeJobId,29,"압축파일 해제","ZIP 첨부파일을 안전하게 풀고 있습니다.");
       const archiveExpansion=await expandZipAttachments(downloadedFiles);
+      await writeJson(path.join(base,"04_구조화데이터","압축해제_결과.json"),{extracted:archiveExpansion.extracted.map(file=>({filename:file.filename,archivePath:file.archivePath,extractedFrom:file.extractedFrom,size:file.buffer.length})),errors:archiveExpansion.errors,extractedAt:new Date().toISOString()});
+      await saveAttachmentFiles(base,archiveExpansion.extracted);
       if(archiveExpansion.errors.length)throw new Error(`첨부 ZIP 압축 해제 실패: ${archiveExpansion.errors.map(item=>`${item.filename} (${item.error})`).join(", ")}`);
       downloadedFiles=archiveExpansion.files;
       updateProgress(activeJobId,34,"한컴문서 변환","압축 내부를 포함한 HWP/HWPX 문서를 PDF로 변환하고 있습니다.");
       const hancomConversion=await convertHancomAttachments(downloadedFiles,{scriptPath:hancomConverterScript});
       downloadedFiles.push(...hancomConversion.converted);
+      await writeJson(path.join(base,"04_구조화데이터","한컴문서_변환결과.json"),{converted:hancomConversion.converted.map(file=>({filename:file.filename,convertedFrom:file.convertedFrom,size:file.buffer.length})),errors:hancomConversion.errors,convertedAt:new Date().toISOString()});
+      await saveAttachmentFiles(base,hancomConversion.converted);
       if(hancomConversion.errors.length)throw new Error(`HWP/HWPX PDF 변환 실패: ${hancomConversion.errors.map(item=>`${item.filename} (${item.error})`).join(", ")}`);
       updateProgress(activeJobId,39,"Excel 문서 변환","압축 내부를 포함한 Excel 문서를 PDF로 변환하고 있습니다.");
       const excelConversion=await convertExcelAttachments(downloadedFiles,{scriptPath:excelConverterScript});
       downloadedFiles.push(...excelConversion.converted);
+      await writeJson(path.join(base,"04_구조화데이터","엑셀문서_변환결과.json"),{converted:excelConversion.converted.map(file=>({filename:file.filename,convertedFrom:file.convertedFrom,size:file.buffer.length})),errors:excelConversion.errors,convertedAt:new Date().toISOString()});
+      await saveAttachmentFiles(base,excelConversion.converted);
       if(excelConversion.errors.length)throw new Error(`Excel PDF 변환 실패: ${excelConversion.errors.map(item=>`${item.filename} (${item.error})`).join(", ")}`);
       updateProgress(activeJobId,46,"AI 문서 추출","공고문과 변환된 PDF에서 요구사항을 추출하고 있습니다.");
       const extraction = await extractNotice({ settings, sourceText, files:downloadedFiles });
-      const state = await loadState(); const number=extraction.noticeNumber || extractNoticeNumber(sourceUrl) || `AUTO-${Date.now()}`;
-      let notice=state.notices.find(item=>item.noticeNumber===number); if(!notice){notice=await createNotice(config.dataRoot,{noticeNumber:number,title:extraction.title||"공고명 확인 필요",organization:extraction.organization||"",deadline:extraction.deadline||"0000-00-00",sourceUrl:finalUrl});state.notices.unshift(notice);}
-      const base = path.join(config.dataRoot, "진행중", notice.folderName);
+      base=await updateNoticeDetails(config.dataRoot,notice,{noticeNumber:extraction.noticeNumber||notice.noticeNumber,title:extraction.title||notice.title,organization:extraction.organization||notice.organization,deadline:extraction.deadline||notice.deadline,sourceUrl:finalUrl});
+      await saveState(state);
       await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),sourceText,"utf8");
-      if(official) { await writeJson(path.join(base,"04_구조화데이터","나라장터_API_원본.json"),official); await writeJson(path.join(base,"04_구조화데이터","압축해제_결과.json"),{extracted:archiveExpansion.extracted.map(file=>({filename:file.filename,extractedFrom:file.extractedFrom,size:file.buffer.length})),errors:archiveExpansion.errors,extractedAt:new Date().toISOString()}); await writeJson(path.join(base,"04_구조화데이터","한컴문서_변환결과.json"),{converted:hancomConversion.converted.map(file=>({filename:file.filename,convertedFrom:file.convertedFrom,size:file.buffer.length})),errors:hancomConversion.errors,convertedAt:new Date().toISOString()}); await writeJson(path.join(base,"04_구조화데이터","엑셀문서_변환결과.json"),{converted:excelConversion.converted.map(file=>({filename:file.filename,convertedFrom:file.convertedFrom,size:file.buffer.length})),errors:excelConversion.errors,convertedAt:new Date().toISOString()}); for(const file of downloadedFiles){const target=path.join(base,"02_첨부파일",...String(file.filename).replace(/\\/g,"/").split("/"));await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,file.buffer);} }
       await writeJson(path.join(base,"04_구조화데이터","AI_추출결과.json"),extraction);
       updateProgress(activeJobId,58,"단가표 조회","자사 단가표를 우선 조회하고 있습니다.");
       const priceableRequirements=extraction.requirements.filter(isPriceableRequirement);
@@ -236,7 +310,7 @@ const server = http.createServer(async (request, response) => {
       const reportPath=path.join(base,"06_분석결과","참가판단리포트.md"); await fs.writeFile(reportPath,reportToMarkdown(notice,report),"utf8");
       const dashboardPath=path.join(base,"06_분석결과","입찰참가판단_대시보드.html"); await fs.writeFile(dashboardPath,reportToDashboardHtml(notice,report,extraction),"utf8");
       const quotePath=path.join(base,"06_분석결과","견적서.xlsx"); await fs.writeFile(quotePath,Buffer.from(await quoteWorkbookBuffer(notice,report,extraction,Number(input.targetMargin||12))));
-      notice.status="분석완료"; notice.analyzedAt=new Date().toISOString(); await saveState(state);
+      notice.status="분석완료"; notice.analyzedAt=new Date().toISOString(); delete notice.lastError; delete notice.failedAt; await ensureNoticeFolder(config.dataRoot,notice); await saveState(state);
       updateProgress(activeJobId,100,"결과 저장","분석과 파일 저장을 완료했습니다.","completed");
       return json(response,200,{notice,report,reportPath,dashboardPath,quotePath});
     }
@@ -304,6 +378,13 @@ const server = http.createServer(async (request, response) => {
     json(response, 404, { error: "요청한 기능을 찾을 수 없습니다." });
   } catch (error) {
     console.error(error);
+    if (activeNoticeId) {
+      try {
+        const failedState=await loadState();
+        const failedNotice=failedState.notices.find((item)=>item.id===activeNoticeId);
+        if(failedNotice){failedNotice.status="분석오류";failedNotice.lastError=error.message||"처리 중 오류가 발생했습니다.";failedNotice.failedAt=new Date().toISOString();await ensureNoticeFolder(config.dataRoot,failedNotice);await saveState(failedState);}
+      } catch (stateError) { console.error("분석 오류 상태 저장 실패",stateError); }
+    }
     updateProgress(activeJobId,100,progressJobs.get(activeJobId)?.stage||"공고 조회",error.message||"처리 중 오류가 발생했습니다.","failed");
     json(response, 400, { error: error.message || "처리 중 오류가 발생했습니다." });
   }
