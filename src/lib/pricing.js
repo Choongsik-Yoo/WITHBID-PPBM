@@ -45,19 +45,43 @@ export function normalizePriceRows(rows) {
 export function rankCompanyPrices(items, query) {
   const qMpn = normalizedKey(query.mpn);
   const qModel = normalizedKey(query.model);
-  const qCategory = normalizedKey(query.category);
+  const requestedText = [query.model, ...(query.searchKeywords || []), ...(query.constraints || []).map((item) => `${item.value || ""} ${item.unit || ""}`)].filter(Boolean).join(" ");
+  const requiredKeywords = coreModelKeywords(requestedText);
+  const categoryKey = (value) => {
+    const text = String(value || "").toUpperCase();
+    const mappings = [
+      ["COOLER", /쿨러|COOLER|냉각/], ["MAINBOARD", /메인보드|마더보드|MAINBOARD|MOTHERBOARD/],
+      ["CPU", /\bCPU\b|프로세서/], ["SSD", /SSD|NVME|M\.2/], ["HDD", /HDD|하드디스크/],
+      ["POWER", /파워|POWER|PSU|전원공급/], ["GPU", /그래픽|GPU|VGA|RTX|RADEON/],
+      ["RAM", /메모리|\bRAM\b|DDR[345]/], ["CASE", /케이스|\bCASE\b/],
+      ["OS", /운영체제|WINDOWS|O\/S/], ["PERIPHERAL", /키보드|마우스|주변기기/],
+    ];
+    return mappings.find(([, pattern]) => pattern.test(text))?.[0] || null;
+  };
+  const qCategory = categoryKey(query.category);
   return items
     .map((item) => {
       let score = 0;
-      if (qMpn && normalizedKey(item.mpn) === qMpn) score += 100;
-      if (qModel && normalizedKey(item.model) === qModel) score += 80;
-      else if (qModel && normalizedKey(item.model).includes(qModel)) score += 40;
-      if (qCategory && normalizedKey(item.category) === qCategory) score += 15;
+      const itemModel = normalizedKey(item.model);
+      const exactMpn = Boolean(qMpn && normalizedKey(item.mpn) === qMpn);
+      const exactModel = Boolean(qModel && itemModel && itemModel === qModel);
+      const containedModel = Boolean(qModel && itemModel && (itemModel.includes(qModel) || qModel.includes(itemModel)));
+      const candidateCategory = categoryKey(item.category);
+      const categoryCompatible = !qCategory || !candidateCategory || candidateCategory === qCategory;
+      const candidateText = `${item.model} ${item.mpn} ${item.specification}`;
+      const match = scoreModelMatch(requestedText, candidateText);
+      if (exactMpn) score += 120;
+      if (exactModel) score += 100;
+      else if (containedModel) score += 55;
+      score += Math.round(match.matchScore * 0.55);
+      if (qCategory && categoryKey(item.category) === qCategory) score += 15;
       if (/보유|재고있음|가능/i.test(item.stock)) score += 5;
       if (/높음|단종/i.test(item.discontinuedRisk)) score -= 20;
-      return { ...item, matchScore: score };
+      const minimumKeywordMatches = requiredKeywords.length >= 4 ? 2 : 1;
+      const identityMatched = exactMpn || exactModel || containedModel || match.matchedKeywords.length >= minimumKeywordMatches;
+      return { ...item, matchScore: score, matchedKeywords:match.matchedKeywords, requiredKeywords, matchType:exactMpn || exactModel ? "exact" : match.matchType, identityMatched:identityMatched && (categoryCompatible || exactMpn) };
     })
-    .filter((item) => item.matchScore > 0)
+    .filter((item) => item.identityMatched && item.matchScore > 0)
     .sort((a, b) => b.matchScore - a.matchScore || (a.unitPrice ?? Infinity) - (b.unitPrice ?? Infinity));
 }
 
@@ -88,8 +112,10 @@ export function coreModelKeywords(value) {
   for(const match of text.matchAll(/RTX\s*(\d{4})/g))add(`RTX${match[1]}`);
   for(const match of text.matchAll(/\b(D\d)\b/g))add(match[1]);
   for(const match of text.matchAll(/\b(\d{1,2})\s*GB\b/g))add(`${match[1]}GB`);
+  for(const match of text.matchAll(/\b(\d+(?:\.\d+)?)\s*TB\b/g))add(`${match[1]}TB`);
   for(const match of text.matchAll(/\b(\d{3,4})\s*W\b/g))add(`${match[1]}W`);
   if(/80\s*PLUS/.test(text))add("80PLUS");
+  for(const token of ["NVME","PCIE5","PCIE4","ECC","RDIMM","REGISTERED","SATA","M-ATX","ATX"])if(text.includes(token.replace("-",""))||text.includes(token))add(token);
   for(const grade of ["TITANIUM","PLATINUM","GOLD","SILVER","BRONZE"])if(text.includes(grade))add(grade);
   const ultra=text.match(/ULTRA\s*([3579])\s+(?:프로세서\s+)?(\d{3}[A-Z]?)/);if(ultra){add(`ULTRA${ultra[1]}`);add(ultra[2]);}
   if(/\bDDR5\b/.test(text)&&!keywords.some(item=>item.startsWith("DDR5-")))add("DDR5");

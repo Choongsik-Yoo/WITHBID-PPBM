@@ -12,7 +12,11 @@ async function defaultConvert(inputPath, outputPath, scriptPath) {
   await execFileAsync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, "-InputPath", inputPath, "-OutputPath", outputPath], { windowsHide: true, timeout: 240000, maxBuffer: 1024 * 1024 });
 }
 
-export async function convertExcelAttachments(files, { scriptPath, convertFile = defaultConvert } = {}) {
+async function cleanupTempDirectory(tempDir) {
+  try { await fs.rm(tempDir, { recursive:true, force:true, maxRetries:8, retryDelay:250 }); } catch {}
+}
+
+export async function convertExcelAttachments(files, { scriptPath, convertFile = defaultConvert, cleanupTemp = cleanupTempDirectory } = {}) {
   const converted = [];
   const errors = [];
   for (const file of files.filter((item) => isExcelFile(item.filename))) {
@@ -30,7 +34,7 @@ export async function convertExcelAttachments(files, { scriptPath, convertFile =
     } catch (error) {
       errors.push({ filename: file.filename, error: error.message });
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
+      try { await cleanupTemp(tempDir); } catch {}
     }
   }
   return { converted, errors };

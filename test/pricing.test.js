@@ -16,6 +16,15 @@ test("부품번호 정확 일치를 최우선한다", () => {
   assert.equal(rankCompanyPrices(items, { category:"CPU", mpn:"TARGET" })[0].mpn, "TARGET");
 });
 
+test("카테고리만 같고 핵심 모델 정보가 없으면 자사 단가로 선택하지 않는다", () => {
+  const items = normalizePriceRows([
+    { 구분:"CPU", 모델명:"Intel i3-12100", 매입단가:100000 },
+    { 구분:"RAM", 모델명:"DDR5-48000 16GB", 매입단가:80000 },
+  ]);
+  assert.deepEqual(rankCompanyPrices(items, {category:"CPU",model:"Ultra 5 225"}), []);
+  assert.equal(rankCompanyPrices(items, {category:"RAM",model:"DDR5-48000 16GB"})[0].category, "RAM");
+});
+
 test("외부 검색은 컴퓨존 다음 가이드컴 순이다", () => {
   const searches = buildExternalSearches({ model:"Intel i5" });
   assert.deepEqual(searches.map((item) => item.sourceType), ["compuzone", "guidecom"]);
@@ -30,4 +39,18 @@ test("부품명에서 핵심 검색 키워드를 추출한다",()=>{
 test("동일 모델이 아니어도 핵심 키워드 일치율을 계산한다",()=>{
   const result=scoreModelMatch("인텔 코어 Ultra 5 프로세서 225 정품벌크","INTEL Ultra 5 225 애로우레이크 정품");
   assert.equal(result.matchScore,100); assert.deepEqual(result.matchedKeywords,["ULTRA5","225"]);
+});
+
+test("카테고리 이름만 같은 무관한 자사 품목은 자동 선택하지 않는다",()=>{
+  const items=normalizePriceRows([{구분:"CPU",모델명:"Intel Xeon Gold 6430",매입단가:1000}]);
+  assert.equal(rankCompanyPrices(items,{category:"CPU",model:"Intel Core Ultra 5 225"}).length,0);
+});
+
+test("핵심 사양이 일치해도 다른 부품 카테고리는 제외한다",()=>{
+  const items=normalizePriceRows([
+    {구분:"RAM",모델명:"DDR5 6000 16GB",매입단가:100},
+    {구분:"SSD",모델명:"DDR5 6000 16GB 표기 오류",매입단가:50},
+  ]);
+  const result=rankCompanyPrices(items,{category:"RAM",model:"DDR5 PC5-48000 16GB",searchKeywords:["DDR5-48000","16GB"]});
+  assert.deepEqual(result.map((item)=>item.category),["RAM"]);
 });

@@ -15,5 +15,8 @@ try{
   $saved=$hwp.SaveAs($OutputPath,'PDF','')
   if(-not $saved -or -not (Test-Path -LiteralPath $OutputPath)){throw 'PDF 저장에 실패했습니다.'}
 } finally {
-  if($hwp){try{$hwp.Clear(1)}catch{};try{$hwp.Quit()}catch{};[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($hwp)}
+  if($hwp){try{$hwp.Clear(1)}catch{};try{$hwp.Quit()}catch{};try{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($hwp)}catch{}}
+  [GC]::Collect()
+  [GC]::WaitForPendingFinalizers()
+  Start-Sleep -Milliseconds 250
 }

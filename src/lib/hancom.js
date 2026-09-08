@@ -12,7 +12,11 @@ async function defaultConvert(inputPath,outputPath,scriptPath){
   await execFileAsync("powershell.exe",["-NoProfile","-ExecutionPolicy","Bypass","-File",scriptPath,"-InputPath",inputPath,"-OutputPath",outputPath],{windowsHide:true,timeout:180000,maxBuffer:1024*1024});
 }
 
-export async function convertHancomAttachments(files,{scriptPath,convertFile=defaultConvert}={}){
+async function cleanupTempDirectory(tempDir){
+  try{await fs.rm(tempDir,{recursive:true,force:true,maxRetries:8,retryDelay:250});}catch{}
+}
+
+export async function convertHancomAttachments(files,{scriptPath,convertFile=defaultConvert,cleanupTemp=cleanupTempDirectory}={}){
   const converted=[]; const errors=[];
   for(const file of files.filter(item=>isHancomFile(item.filename))){
     const tempDir=await fs.mkdtemp(path.join(os.tmpdir(),"withbid-hancom-"));
@@ -21,7 +25,7 @@ export async function convertHancomAttachments(files,{scriptPath,convertFile=def
     const outputName=path.posix.join(path.posix.dirname(normalizedName),pdfNameForHancom(path.posix.basename(normalizedName))); const outputPath=path.join(tempDir,path.basename(outputName));
     try{await fs.writeFile(inputPath,file.buffer);await convertFile(inputPath,outputPath,scriptPath);const buffer=await fs.readFile(outputPath);if(buffer.subarray(0,4).toString()!=="%PDF")throw new Error("변환 결과가 PDF 형식이 아닙니다.");converted.push({filename:outputName,buffer,convertedFrom:file.filename});}
     catch(error){errors.push({filename:file.filename,error:error.message});}
-    finally{await fs.rm(tempDir,{recursive:true,force:true});}
+    finally{try{await cleanupTemp(tempDir);}catch{}}
   }
   return {converted,errors};
 }

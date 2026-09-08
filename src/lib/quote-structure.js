@@ -17,7 +17,7 @@ export function isPriceableRequirement(item = {}) {
   if (["complete_system", "non_price"].includes(item.priceRole)) return false;
   if (isWholeSystemItem(item)) return false;
   if (!item.priceRole && nonPricePattern.test(String(item.category || ""))) return false;
-  return Number(item.quantity) > 0;
+  return Boolean(String(item.condition || item.requirement || "").trim());
 }
 
 export function canonicalComponentCategory(item = {}) {
@@ -40,7 +40,7 @@ export function canonicalComponentCategory(item = {}) {
 function mode(values) {
   const counts = new Map();
   for (const value of values.filter((value) => Number(value) > 0)) counts.set(Number(value), (counts.get(Number(value)) || 0) + 1);
-  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] || 1;
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] || null;
 }
 
 export function buildQuoteGroups(configuration = []) {
@@ -66,9 +66,9 @@ export function buildQuoteGroups(configuration = []) {
         category: canonicalComponentCategory(item),
         unitQuantity: Number(item.unitQuantity) > 0
           ? Number(item.unitQuantity)
-          : Number(item.quantity) > 0 && Number(item.quantity) % systemQuantity === 0
+          : systemQuantity && Number(item.quantity) > 0 && Number(item.quantity) % systemQuantity === 0
             ? Number(item.quantity) / systemQuantity
-            : Number(item.quantity) || null,
+            : null,
       })),
     };
   }).sort((a, b) => {

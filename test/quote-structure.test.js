@@ -27,3 +27,11 @@ test("SSD의 DRAM과 GPU의 VRAM 문구를 메모리 품목으로 오인하지 �
   ]);
   assert.deepEqual(groups[0].items.map(item=>item.category),["M.2","VGA","RAM"]);
 });
+
+test("원문에 1대당 수량이 없으면 임의로 1을 채우지 않는다",()=>{
+  const groups=buildQuoteGroups([
+    {category:"CPU",requirement:"Ultra 5 225",quantity:null,unitQuantity:null,systemQuantity:null,priceRole:"component",specificationGroup:"본체사양 1"},
+  ]);
+  assert.equal(groups[0].systemQuantity,null);
+  assert.equal(groups[0].items[0].unitQuantity,null);
+});
