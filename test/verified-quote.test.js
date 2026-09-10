@@ -64,3 +64,14 @@ test("완제품은 제외하고 자사 단가표 후보를 우선 선택한다",
   assert.equal(plan.configuration[0].selectedModel, "자사 후보");
   assert.equal(plan.configuration[0].unitPrice, 120000);
 });
+
+test("판매가격을 못 찾아도 규격서의 정확 모델과 규격 후보를 공란으로 두지 않는다",()=>{
+  const extraction={requirements:[
+    {...rawRequirement(),specifiedModel:"Intel Xeon 6960P",verificationStatus:"verified"},
+    {...rawRequirement({id:"REQ-CASE",category:"CASE",condition:"5U 랙마운트 서버 섀시"}),specifiedModel:null,selectionLabel:"CASE 규격 후보 (5U · RACKMOUNT)",verificationStatus:"verified"},
+  ]};
+  const plan=buildVerifiedQuotePlan(extraction,[]);
+  assert.equal(plan.configuration[0].selectedModel,"Intel Xeon 6960P");
+  assert.match(plan.configuration[0].status,/규격서 명시 모델/);
+  assert.equal(plan.configuration[1].selectedModel,"CASE 규격 후보 (5U · RACKMOUNT)");
+});

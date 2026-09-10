@@ -34,3 +34,15 @@ test("동일한 파일명은 평면 폴더에서 덮어쓰지 않도록 번호�
   const result=await expandZipAttachments([{filename:"붙임.zip",buffer:Buffer.from("PK\u0003\u0004")}],{openArchive});
   assert.deepEqual(result.extracted.map(file=>file.filename),["규격서.hwp","규격서_2.hwp"]);
 });
+
+test("ZIP 컨테이너 형식인 HWPX와 XLSX는 일반 압축파일처럼 풀지 않는다",async()=>{
+  let opened=0;
+  const files=[
+    {filename:"규격서.hwpx",buffer:Buffer.from("PK\u0003\u0004")},
+    {filename:"구매내역.xlsx",buffer:Buffer.from("PK\u0003\u0004")},
+  ];
+  const result=await expandZipAttachments(files,{openArchive:async()=>{opened+=1;return{files:[]};}});
+  assert.equal(opened,0);
+  assert.equal(result.extracted.length,0);
+  assert.equal(result.files.length,2);
+});

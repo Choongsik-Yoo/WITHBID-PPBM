@@ -3,7 +3,13 @@ import unzipper from "unzipper";
 import { safeName } from "./files.js";
 
 const ZIP_SIGNATURES = ["504b0304", "504b0506", "504b0708"];
-const isZip = (file) => /\.zip$/i.test(file.filename || "") || ZIP_SIGNATURES.includes(file.buffer?.subarray(0, 4).toString("hex"));
+const PACKAGED_DOCUMENT_PATTERN = /\.(?:hwpx|xlsx|xlsm|docx|pptx|odt|ods|odp)$/i;
+const isZip = (file) => {
+  const filename = String(file.filename || "");
+  if (/\.zip$/i.test(filename)) return true;
+  if (PACKAGED_DOCUMENT_PATTERN.test(filename)) return false;
+  return ZIP_SIGNATURES.includes(file.buffer?.subarray(0, 4).toString("hex"));
+};
 const utf8Decoder = new TextDecoder("utf-8", { fatal:true });
 const cp949Decoder = new TextDecoder("euc-kr", { fatal:true });
 

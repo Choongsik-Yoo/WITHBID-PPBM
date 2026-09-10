@@ -81,7 +81,9 @@ export function rankCompanyPrices(items, query) {
       if (/보유|재고있음|가능/i.test(item.stock)) score += 5;
       if (/높음|단종/i.test(item.discontinuedRisk)) score -= 20;
       score += compatibility.compatibilityScore;
-      const minimumKeywordMatches = requiredKeywords.length >= 4 ? 2 : 1;
+      const minimumKeywordMatches = query.requirement?.derivedFromCompatibility
+        ? Math.min(2, requiredKeywords.length)
+        : requiredKeywords.length >= 4 ? 2 : 1;
       const identityMatched = exactMpn || exactModel || containedModel || match.matchedKeywords.length >= minimumKeywordMatches;
       return { ...item, matchScore: score, matchedKeywords:match.matchedKeywords, requiredKeywords, matchType:exactMpn || exactModel ? "exact" : match.matchType, identityMatched:identityMatched && (categoryCompatible || exactMpn), ...compatibility };
     })
@@ -125,12 +127,20 @@ export function coreModelKeywords(value) {
   const keywords=[]; const add=value=>{if(value&&!keywords.includes(value))keywords.push(value);};
   for(const match of text.matchAll(/(?:DDR5\s*)?PC5[- ]?(\d{4,5})/g))add(`DDR5-${match[1]}`);
   for(const match of text.matchAll(/RTX\s*(\d{4})/g))add(`RTX${match[1]}`);
+  for(const match of text.matchAll(/RTX\s*PRO\s*(\d{4,5})/g)){add("RTXPRO");add(match[1]);}
+  for(const match of text.matchAll(/\bXEON(?:\s+(?:PLATINUM|GOLD|SILVER|BRONZE))?\s+(\d{4,5}[A-Z]?)\b/g)){add("XEON");add(match[1]);}
+  for(const match of text.matchAll(/\bEPYC(?:\s+\w+){0,2}\s+(\d{4,5}[A-Z]*)\b/g)){add("EPYC");add(match[1]);}
   for(const match of text.matchAll(/\b(D\d)\b/g))add(match[1]);
   for(const match of text.matchAll(/\b(\d{1,2})\s*GB\b/g))add(`${match[1]}GB`);
   for(const match of text.matchAll(/\b(\d+(?:\.\d+)?)\s*TB\b/g))add(`${match[1]}TB`);
   for(const match of text.matchAll(/\b(\d{3,4})\s*W\b/g))add(`${match[1]}W`);
   if(/80\s*PLUS/.test(text))add("80PLUS");
-  for(const token of ["NVME","PCIE5","PCIE4","ECC","RDIMM","REGISTERED","SATA","M-ATX","ATX"])if(text.includes(token.replace("-",""))||text.includes(token))add(token);
+  for(const match of text.matchAll(/\b(\d{1,2})\s*U\b/g))add(`${match[1]}U`);
+  if(/메인보드|MOTHERBOARD|MAINBOARD/.test(text))add("MAINBOARD");
+  if(/CPU\s*쿨러|CPU\s*COOLER|PROCESSOR\s*COOLER/.test(text))add("COOLER");
+  if(/랙\s*마운트|RACK\s*MOUNT|RACKMOUNT/.test(text))add("RACKMOUNT");
+  if(/섀시|CHASSIS/.test(text))add("CHASSIS");
+  for(const token of ["NVME","U.2","M.2","PCIE5","PCIE4","ECC","RDIMM","REGISTERED","REDUNDANT","RACKMOUNT","SATA","SAS","M-ATX","ATX"])if(text.includes(token.replace("-",""))||text.includes(token))add(token);
   for(const grade of ["TITANIUM","PLATINUM","GOLD","SILVER","BRONZE"])if(text.includes(grade))add(grade);
   const ultra=text.match(/ULTRA\s*([3579])\s+(?:프로세서\s+)?(\d{3}[A-Z]?)/);if(ultra){add(`ULTRA${ultra[1]}`);add(ultra[2]);}
   if(/\bDDR5\b/.test(text)&&!keywords.some(item=>item.startsWith("DDR5-")))add("DDR5");

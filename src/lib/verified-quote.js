@@ -107,6 +107,10 @@ function mergeDuplicate(left, right) {
 function collapseRequirements(requirements, uncertainties) {
   const result = [];
   for (const requirement of requirements) {
+    if (["complete_system", "non_price"].includes(requirement.priceRole)) {
+      result.push(requirement);
+      continue;
+    }
     const duplicateIndex = result.findIndex((candidate) => sameRequirement(candidate, requirement));
     if (duplicateIndex >= 0) {
       result[duplicateIndex] = mergeDuplicate(result[duplicateIndex], requirement);
@@ -308,13 +312,17 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
     !isWholeSystemItem(requirement) && requirement.priceRole !== "complete_system" && requirement.priceRole !== "non_price");
   const configuration = quoteRequirements.map((requirement) => {
     const candidate = requirement.priceSearchAllowed === false ? null : selectCandidate(requirement, priceCandidates);
-    const selectedModel = candidate?.model || null;
+    const selectedModel = candidate?.model || requirement.specifiedModel || requirement.selectionLabel || null;
     const source = candidate?.sourceUrl || candidate?.source || "";
     let status = "단가 미확인";
     if (requirement.verificationStatus === "conflict") status = "요구조건 충돌 · 원문 확인 필요";
+    else if (requirement.verificationStatus === "derived" && candidate) status = `호환 구성 보완 후보 · ${candidate.status || `일치도 ${candidate.matchScore ?? 0}%`}`;
+    else if (requirement.verificationStatus === "derived") status = "호환 구성 보완 · 판매 모델/단가 확인 필요";
     else if (requirement.verificationStatus !== "verified") status = "원문 근거 확인 필요";
     else if (candidate?.source === "company_price_list") status = `자사 단가표 ${candidate.matchType === "exact" ? "정확 모델" : "핵심사양 후보"} · 일치도 ${candidate.matchScore ?? 0}% · ${candidate.stock || "재고 확인"}`;
     else if (candidate) status = candidate.status || `${candidate.matchType === "exact" ? "동일모델" : "대체모델 후보"} · 일치도 ${candidate.matchScore ?? 0}%`;
+    else if (requirement.specifiedModel) status = "규격서 명시 모델 · 단가 미확인";
+    else if (requirement.selectionLabel) status = "핵심 규격 후보 · 판매 모델/단가 확인 필요";
     return {
       requirementId: requirement.id,
       category: canonicalComponentCategory(requirement),
@@ -334,6 +342,8 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
       verificationStatus: requirement.verificationStatus,
       searchKeywords: requirement.searchKeywords || [],
       constraints: requirement.constraints || [],
+      searchProfile: requirement.searchProfile || null,
+      derivedFromCompatibility: Boolean(requirement.derivedFromCompatibility),
       compatibilityStatus: candidate?.compatibilityStatus || null,
       compatibilityNotes: candidate?.compatibilityNotes || [],
     };

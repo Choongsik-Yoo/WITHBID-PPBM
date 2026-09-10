@@ -13,6 +13,14 @@ test("컴퓨존과 가이드컴 후보가 없을 때 다나와 상세 상품을 
   assert.deepEqual(requests.map((request)=>request.tools[0].filters.allowed_domains),[["compuzone.co.kr","guidecom.co.kr"],["danawa.com"]]);
 });
 
+test("호환성 보완 부품은 직접 상품이며 핵심 품목어가 맞으면 후보로 유지한다",async()=>{
+  const products=[{category:"MAINBOARD",requestedModel:"Xeon 호환 서버 메인보드",matchedModel:"서버 MAINBOARD X13",specification:"DDR5 ECC 서버 메인보드",unitPrice:900000,sourceName:"컴퓨존",sourceUrl:"https://www.compuzone.co.kr/product/product_detail.htm?ProductNo=2",checkedAt:"2026-09-10",confidence:"medium",status:"판매중",compatibilityStatus:"review",compatibilityNotes:["CPU 소켓 확인 필요"]}];
+  const fetchImpl=async()=>({ok:true,json:async()=>({output_text:JSON.stringify({products})})});
+  const result=await findExternalPrices({settings:{apiKey:"secret"},requirements:[{id:"BOARD",category:"MAINBOARD",model:"서버용 MAINBOARD Intel Xeon 6960P 호환",derivedFromCompatibility:true,searchProfile:{exactModel:null,requiredKeywords:["MAINBOARD","XEON","6960P"]},compatibilityContext:{}}],fetchImpl});
+  assert.equal(result.length,1);
+  assert.equal(result[0].matchedModel,"서버 MAINBOARD X13");
+});
+
 test("문장형 규격서는 원문 블록 ID와 수량 근거를 요구한다",async()=>{
   let request;
   const payload={noticeNumber:"R1",title:"PC 구매",organization:"기관",deadline:null,budget:null,qualifications:[],requirements:[{id:"REQ-1",category:"CPU",condition:"Ultra 5 225",quantity:null,evidence:"CPU Ultra 5 225 이상",evidenceBlockIds:["B1"],specificationGroup:"본체사양 1",unitQuantity:null,systemQuantity:null,priceRole:"component",constraints:[],searchKeywords:["Ultra 5 225"],confidence:0.9}],uncertainties:["수량 확인"]};

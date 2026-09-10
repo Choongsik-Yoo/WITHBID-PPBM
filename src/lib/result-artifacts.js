@@ -46,10 +46,9 @@ const requiredComputerCategories = new Set(["CASE", "MAINBOARD", "CPU", "CPU 쿨
 function makeRows(group) {
   const used = new Set();
   const isComputerGroup = /^본체사양\s*\d+/i.test(group.name) || group.items.some((item) => ["CPU", "MAINBOARD", "RAM", "VGA"].includes(item.category));
-  const rows = isComputerGroup ? componentTemplate.map(([category, defaults]) => {
-    const index = group.items.findIndex((item, i) => !used.has(i) && item.category === category);
-    const item = index >= 0 ? group.items[index] : null;
-    if (index >= 0) used.add(index);
+  const isServerGroup = /서버|SERVER/i.test(group.name) || group.items.some((item) => /서버|SERVER/i.test(`${item.requirement || ""} ${item.evidence || ""}`));
+  const rows = [];
+  const rowFor = (category, defaults, item) => {
     const wholeSystemMistake = item && /데스크[탑톱]|완제품|워크스테이션|프로맥스/i.test(String(item.selectedModel || ""));
     return {
       category,
@@ -60,7 +59,20 @@ function makeRows(group) {
       source:wholeSystemMistake ? null : item?.source || null,
       status:wholeSystemMistake ? "완제품 가격 오인식 제외 · 해당 부품 단가 재확인" : item?.status || (defaults.requirement ? "기본 원가" : null),
     };
-  }) : [];
+  };
+  if (isComputerGroup) for (const [category, originalDefaults] of componentTemplate) {
+    if (isServerGroup && ["K/B(OEM)", "MOUSE(OEM)", "마우스패드", "옵션 1", "옵션 2", "옵션 3", "박스(OEM)", "배송비", "입가공비", "납품설치비"].includes(category)) continue;
+    const defaults = originalDefaults;
+    const matches = group.items.map((item, index) => ({ item, index })).filter(({ item, index }) => !used.has(index) && item.category === category);
+    if (!matches.length) {
+      rows.push(rowFor(category, defaults, null));
+      continue;
+    }
+    for (const { item, index } of matches) {
+      used.add(index);
+      rows.push(rowFor(category, defaults, item));
+    }
+  }
   for (const [index, item] of group.items.entries()) if (!used.has(index)) rows.push({
     category:item.category, requirement:item.requirement || null, selectedModel:item.selectedModel || null,
     unitPrice:item.unitPrice, unitQuantity:item.unitQuantity, source:item.source || null, status:item.status || null,
