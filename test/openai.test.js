@@ -1,7 +1,17 @@
 import test from "node:test"; import assert from "node:assert/strict"; import { extractNotice,findExternalPrices,redactSettings,responseText } from "../src/lib/openai.js";
 test("API 키를 노출하지 않는다",()=>{const v=redactSettings({apiKey:"sk-proj-abcdefghijklmnop"});assert.equal(v.configured,true);assert.equal("apiKey" in v,false);});
 test("Responses 응답 텍스트를 읽는다",()=>assert.equal(responseText({output:[{content:[{type:"output_text",text:"{}"}]}]}),"{}"));
-test("외부 가격 검색은 지정 쇼핑몰의 직접 링크만 허용한다",async()=>{let request;const products=[{category:"CPU",requestedModel:"265K",matchedModel:"Intel 265K",unitPrice:499000,sourceName:"컴퓨존",sourceUrl:"https://www.compuzone.co.kr/product/product_detail.htm?ProductNo=1",checkedAt:"2026-07-21",confidence:"high",status:"판매중"},{category:"CPU",requestedModel:"265K",matchedModel:"Intel 265K",unitPrice:450000,sourceName:"컴퓨존",sourceUrl:"https://example.com/fake",checkedAt:"2026-07-21",confidence:"low",status:"확인"}];const fetchImpl=async(url,options)=>{request=JSON.parse(options.body);return{ok:true,json:async()=>({output_text:JSON.stringify({products})})}};const result=await findExternalPrices({settings:{apiKey:"secret",extractionModel:"gpt-5.6-luna"},requirements:[{category:"CPU",model:"265K",quantity:1}],fetchImpl});assert.equal(result.length,1);assert.deepEqual(request.tools[0].filters.allowed_domains,["compuzone.co.kr","guidecom.co.kr"]);assert.equal(request.tool_choice,"required");});
+test("외부 가격 검색은 지정 쇼핑몰의 직접 링크만 허용한다",async()=>{let request;const products=[{category:"CPU",requestedModel:"265K",matchedModel:"Intel 265K",specification:"LGA1851 DDR5",unitPrice:499000,sourceName:"컴퓨존",sourceUrl:"https://www.compuzone.co.kr/product/product_detail.htm?ProductNo=1",checkedAt:"2026-07-21",confidence:"high",status:"판매중",compatibilityStatus:"compatible",compatibilityNotes:[]},{category:"CPU",requestedModel:"265K",matchedModel:"Intel 265K",specification:null,unitPrice:450000,sourceName:"컴퓨존",sourceUrl:"https://example.com/fake",checkedAt:"2026-07-21",confidence:"low",status:"확인",compatibilityStatus:"review",compatibilityNotes:[]}];const fetchImpl=async(url,options)=>{request=JSON.parse(options.body);return{ok:true,json:async()=>({output_text:JSON.stringify({products})})}};const result=await findExternalPrices({settings:{apiKey:"secret",extractionModel:"gpt-5.6-luna"},requirements:[{category:"CPU",model:"265K",quantity:1}],fetchImpl});assert.equal(result.length,1);assert.deepEqual(request.tools[0].filters.allowed_domains,["compuzone.co.kr","guidecom.co.kr"]);assert.equal(request.tool_choice,"required");});
+
+test("컴퓨존과 가이드컴 후보가 없을 때 다나와 상세 상품을 사용한다",async()=>{
+  const products=[{category:"VGA",requestedModel:"RTX 5060 8GB",matchedModel:"RTX 5060 8GB",specification:"PCIe 5.0, 권장 파워 650W",unitPrice:510000,sourceName:"다나와",sourceUrl:"https://prod.danawa.com/info/?pcode=123456",checkedAt:"2026-09-10",confidence:"high",status:"가격비교 판매중",compatibilityStatus:"compatible",compatibilityNotes:["PCIe 호환"]}];
+  const requests=[];
+  const fetchImpl=async(url,options)=>{const request=JSON.parse(options.body);requests.push(request);const isDanawa=request.tools[0].filters.allowed_domains.includes("danawa.com");return{ok:true,json:async()=>({output_text:JSON.stringify({products:isDanawa?products:[]})})}};
+  const result=await findExternalPrices({settings:{apiKey:"secret"},requirements:[{id:"GPU",category:"VGA",model:"RTX 5060 8GB",compatibilityContext:{}}],fetchImpl});
+  assert.equal(result[0].sourceName,"다나와");
+  assert.match(result[0].sourceUrl,/prod\.danawa\.com\/info\/\?pcode=/);
+  assert.deepEqual(requests.map((request)=>request.tools[0].filters.allowed_domains),[["compuzone.co.kr","guidecom.co.kr"],["danawa.com"]]);
+});
 
 test("문장형 규격서는 원문 블록 ID와 수량 근거를 요구한다",async()=>{
   let request;

@@ -1,3 +1,5 @@
+import { evaluateCandidateCompatibility } from "./compatibility.js";
+
 const COLUMN_ALIASES = {
   category: ["구분", "분류", "category", "품목"],
   model: ["모델명", "모델", "model", "상품명"],
@@ -70,6 +72,7 @@ export function rankCompanyPrices(items, query) {
       const categoryCompatible = !qCategory || !candidateCategory || candidateCategory === qCategory;
       const candidateText = `${item.model} ${item.mpn} ${item.specification}`;
       const match = scoreModelMatch(requestedText, candidateText);
+      const compatibility = evaluateCandidateCompatibility(query.requirement || query, item, query.compatibilityContext || {});
       if (exactMpn) score += 120;
       if (exactModel) score += 100;
       else if (containedModel) score += 55;
@@ -77,11 +80,12 @@ export function rankCompanyPrices(items, query) {
       if (qCategory && categoryKey(item.category) === qCategory) score += 15;
       if (/보유|재고있음|가능/i.test(item.stock)) score += 5;
       if (/높음|단종/i.test(item.discontinuedRisk)) score -= 20;
+      score += compatibility.compatibilityScore;
       const minimumKeywordMatches = requiredKeywords.length >= 4 ? 2 : 1;
       const identityMatched = exactMpn || exactModel || containedModel || match.matchedKeywords.length >= minimumKeywordMatches;
-      return { ...item, matchScore: score, matchedKeywords:match.matchedKeywords, requiredKeywords, matchType:exactMpn || exactModel ? "exact" : match.matchType, identityMatched:identityMatched && (categoryCompatible || exactMpn) };
+      return { ...item, matchScore: score, matchedKeywords:match.matchedKeywords, requiredKeywords, matchType:exactMpn || exactModel ? "exact" : match.matchType, identityMatched:identityMatched && (categoryCompatible || exactMpn), ...compatibility };
     })
-    .filter((item) => item.identityMatched && item.matchScore > 0)
+    .filter((item) => item.identityMatched && item.matchScore > 0 && item.compatibilityStatus !== "incompatible")
     .sort((a, b) => b.matchScore - a.matchScore || (a.unitPrice ?? Infinity) - (b.unitPrice ?? Infinity));
 }
 
@@ -102,7 +106,18 @@ export function buildExternalSearches(query) {
       searchUrl: `https://www.guidecom.co.kr/search.php?search_str=${encodeURIComponent(term)}`,
       status: "manual_verification_required",
     },
+    {
+      sourceType: "danawa",
+      sourceName: "다나와",
+      query: term,
+      searchUrl: `https://search.danawa.com/dsearch.php?query=${encodeURIComponent(term)}`,
+      status: "fallback_only_manual_verification_required",
+    },
   ];
+}
+
+export function priceSourcePriority(source) {
+  return ({ company_price_list:0, "컴퓨존":1, "가이드컴":2, "다나와":3 })[source] ?? 9;
 }
 
 export function coreModelKeywords(value) {

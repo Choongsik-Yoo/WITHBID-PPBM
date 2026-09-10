@@ -1,4 +1,4 @@
-import { coreModelKeywords, scoreModelMatch } from "./pricing.js";
+import { coreModelKeywords, priceSourcePriority, scoreModelMatch } from "./pricing.js";
 import {
   canonicalComponentCategory,
   inferredSpecificationGroup,
@@ -249,14 +249,17 @@ function candidateRequirementId(candidate) {
 function candidateScore(requirement, candidate) {
   const requested = [requirement.condition, ...(requirement.searchKeywords || [])].filter(Boolean).join(" ");
   const match = scoreModelMatch(requested, `${candidate.model || ""} ${candidate.specification || ""}`);
-  const sourceRank = candidate.source === "company_price_list" ? 300 : candidate.matchType === "exact" ? 200 : 100;
-  return sourceRank + Number(candidate.matchScore ?? match.matchScore ?? 0);
+  const sourceRank = candidate.source === "company_price_list" ? 1000 : 300-(priceSourcePriority(candidate.source)*10);
+  const matchRank = candidate.matchType === "exact" ? 200 : 100;
+  const compatibilityRank = candidate.compatibilityStatus === "incompatible" ? -10000 : candidate.compatibilityStatus === "compatible" ? 40 : 0;
+  return sourceRank + matchRank + compatibilityRank + Number(candidate.matchScore ?? match.matchScore ?? 0);
 }
 
 function selectCandidate(requirement, candidates) {
   return candidates
     .filter((candidate) => candidateRequirementId(candidate) === requirement.id)
     .filter((candidate) => Number(candidate.unitPrice) > 0)
+    .filter((candidate) => candidate.compatibilityStatus !== "incompatible")
     .sort((left, right) => candidateScore(requirement, right) - candidateScore(requirement, left))[0] || null;
 }
 
@@ -293,6 +296,9 @@ function auditConfiguration(configuration, sourceRequirements) {
   for (const item of configuration.filter((value) => value.unitPrice == null)) {
     issues.push({ severity: "blocking", code: "PRICE_UNKNOWN", group: item.specificationGroup || "공통 품목", category: item.category, message: `${item.specificationGroup || "공통 품목"} ${item.category}: 단가를 확인하지 못했습니다.` });
   }
+  for (const item of configuration.filter((value) => value.selectedModel && value.compatibilityStatus === "review")) {
+    issues.push({ severity: "warning", code: "COMPATIBILITY_REVIEW", group: item.specificationGroup || "공통 품목", category: item.category, message: `${item.specificationGroup || "공통 품목"} ${item.category}: ${item.compatibilityNotes?.join(", ") || "선행 부품과의 호환성을 확인해야 합니다."}` });
+  }
   return issues.filter((issue, index, array) => index === array.findIndex((candidate) => candidate.code === issue.code && candidate.group === issue.group && candidate.category === issue.category));
 }
 
@@ -328,11 +334,13 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
       verificationStatus: requirement.verificationStatus,
       searchKeywords: requirement.searchKeywords || [],
       constraints: requirement.constraints || [],
+      compatibilityStatus: candidate?.compatibilityStatus || null,
+      compatibilityNotes: candidate?.compatibilityNotes || [],
     };
   });
   const audit = auditConfiguration(configuration, sourceRequirements);
   return {
-    schemaVersion: "2.0",
+    schemaVersion: "2.1",
     generatedAt: new Date().toISOString(),
     configuration,
     audit,

@@ -1,4 +1,5 @@
-import { scoreModelMatch } from "./pricing.js";
+import { priceSourcePriority, scoreModelMatch } from "./pricing.js";
+import { evaluateCandidateCompatibility } from "./compatibility.js";
 import { buildBlockManifest } from "./document-analysis.js";
 
 const defaults = { extractionModel: "gpt-5.6-luna", analysisModel: "gpt-5.6-terra" };
@@ -91,24 +92,70 @@ const externalPriceSchema={
   name:"external_product_prices",
   value:{type:"object",additionalProperties:false,required:["products"],properties:{
     products:{type:"array",items:{type:"object",additionalProperties:false,
-      required:["category","requestedModel","matchedModel","unitPrice","sourceName","sourceUrl","checkedAt","confidence","status"],
-      properties:{category:{type:"string"},requestedModel:{type:"string"},matchedModel:{type:["string","null"]},unitPrice:{type:["number","null"]},sourceName:{type:["string","null"],enum:["컴퓨존","가이드컴",null]},sourceUrl:{type:["string","null"]},checkedAt:{type:"string"},confidence:{type:"string",enum:["high","medium","low"]},status:{type:"string"}}
+      required:["category","requestedModel","matchedModel","specification","unitPrice","sourceName","sourceUrl","checkedAt","confidence","status","compatibilityStatus","compatibilityNotes"],
+      properties:{category:{type:"string"},requestedModel:{type:"string"},matchedModel:{type:["string","null"]},specification:{type:["string","null"]},unitPrice:{type:["number","null"]},sourceName:{type:["string","null"],enum:["컴퓨존","가이드컴","다나와",null]},sourceUrl:{type:["string","null"]},checkedAt:{type:"string"},confidence:{type:"string",enum:["high","medium","low"]},status:{type:"string"},compatibilityStatus:{type:"string",enum:["compatible","review","incompatible"]},compatibilityNotes:{type:"array",items:{type:"string"}}}
     }}
   }}
 };
 
+const externalPriceInstructions=`한국 PC 부품 가격 조사자다. 자사 단가표에서 찾지 못한 품목 하나를 조사한다.
+검색 우선순위는 1) 컴퓨존, 2) 가이드컴이다. 두 사이트 모두 판매 가능한 후보가 없을 때만 3) 다나와 가격비교를 사용한다.
+전체 작업은 같은 사양 그룹 안에서 CPU → MAINBOARD → CPU 쿨러 → RAM → M.2 → HDD → VGA → POWER → CASE → 운영체제(O/S) → 그 외 순서로 호출된다. 현재 품목을 앞서 선정된 부품에 맞춘다.
+정확한 동일 모델을 먼저 찾고, 없으면 핵심 키워드가 많이 일치하는 대체모델을 최대 3개 반환한다. 제조사나 색상보다 칩셋·소켓·용량·속도·전력·효율등급을 우선한다.
+핵심 키워드 예: 마이크로닉스 Classic II 850W 80PLUS GOLD는 850W·80PLUS·GOLD, RTX 5060 GAMING DUO D7 8GB는 RTX5060·D7·8GB, DDR5 PC5-48000 16GB는 DDR5-48000·16GB, Ultra 5 225는 Ultra5·225다.
+입력의 compatibilityContext에는 같은 사양 그룹에서 앞서 선정한 CPU·메인보드·그래픽카드 등의 정보가 있다. CPU 소켓, 메모리 DDR 규격, CPU 쿨러 소켓, 그래픽카드 권장 출력, 메인보드와 케이스 폼팩터를 대조한다. 불일치 후보는 compatibilityStatus를 incompatible로 기록하고 선정 후보로 추천하지 않는다. 확인할 정보가 부족하면 review로 표시한다.
+직접 상품 페이지에 표시된 현재 판매가격과 상품 상세 URL만 기록한다. 다나와는 prod.danawa.com/info/ 형식의 pcode가 있는 상품 상세 링크와 가격만 허용한다. 검색결과·카테고리·블로그 링크는 기록하지 않는다. 동일 제품 여러 개가 한 구성에 필요해도 unitPrice는 1개 가격이다.`;
+
+function isDirectProductUrl(value) {
+  try {
+    const url=new URL(value);
+    if(url.protocol!=="https:")return false;
+    const host=url.hostname.toLowerCase();
+    if(host==="www.compuzone.co.kr"||host==="compuzone.co.kr")return /\/product\//i.test(url.pathname);
+    if(host==="www.guidecom.co.kr"||host==="guidecom.co.kr")return !/\/search/i.test(url.pathname);
+    if(host==="prod.danawa.com")return /^\/info\//i.test(url.pathname)&&Boolean(url.searchParams.get("pcode"));
+    return false;
+  } catch { return false; }
+}
+
+function mergeCompatibility(requirement,item) {
+  const local=evaluateCandidateCompatibility(requirement,item,requirement.compatibilityContext||{});
+  const aiStatus=item.compatibilityStatus||"review";
+  const compatibilityStatus=local.compatibilityStatus==="incompatible"||aiStatus==="incompatible"
+    ? "incompatible"
+    : local.compatibilityStatus==="compatible"||aiStatus==="compatible" ? "compatible" : "review";
+  return {...local,compatibilityStatus,compatibilityNotes:[...new Set([...(item.compatibilityNotes||[]),...(local.compatibilityNotes||[])])]};
+}
+
 export async function findExternalPrices({settings,requirements,fetchImpl=fetch}) {
   if(!requirements.length)return [];
   const searchOne=async requirement=>{
-    const response=await fetchImpl("https://api.openai.com/v1/responses",{method:"POST",headers:{Authorization:`Bearer ${settings.apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:settings.extractionModel||defaults.extractionModel,reasoning:{effort:"low"},tools:[{type:"web_search",filters:{allowed_domains:["compuzone.co.kr","guidecom.co.kr"]}}],tool_choice:"required",include:["web_search_call.action.sources"],instructions:"한국 PC 부품 가격 조사자다. 자사 단가표에서 찾지 못한 품목 하나를 조사한다. 1) 컴퓨존 동일 모델, 2) 가이드컴 동일 모델, 3) 동일 모델이 없으면 핵심 키워드가 많이 일치하는 대체모델 순으로 최대 3개를 반환한다. 핵심 키워드 예: 마이크로닉스 Classic II 850W 80PLUS GOLD는 850W·80PLUS·GOLD, RTX 5060 GAMING DUO D7 8GB는 RTX5060·D7·8GB, DDR5 PC5-48000 16GB는 DDR5-48000·16GB, Ultra 5 225는 Ultra5·225다. 제조사나 색상보다 칩셋·용량·속도·전력·효율등급을 우선한다. 정확 모델이 아니면 status에 '대체모델 후보'와 일치 핵심 키워드를 반드시 적는다. 직접 상품 페이지에 명시된 현재 판매가격과 직접 URL만 기록한다. 동일 제품 여러 개가 한 구성에 필요하면 unitPrice는 1개 가격이다.",input:JSON.stringify(requirement),store:false,text:{format:{type:"json_schema",name:externalPriceSchema.name,strict:true,schema:externalPriceSchema.value}}})});
-    const payload=await response.json().catch(()=>({}));
-    if(!response.ok)throw new Error(payload.error?.message||`외부 가격 검색 오류 (${response.status})`);
     const requested=[requirement.model,...(requirement.searchKeywords||[])].filter(Boolean).join(" ");
-    return JSON.parse(responseText(payload)).products.map(item=>({...item,requirementId:requirement.id,specificationGroup:requirement.specificationGroup,unitQuantity:requirement.unitQuantity,systemQuantity:requirement.systemQuantity,priceRole:requirement.priceRole,...scoreModelMatch(requested,item.matchedModel)})).filter(item=>item.matchType==="exact"||item.matchScore>=60||item.matchedKeywords.length>=2).sort((a,b)=>b.matchScore-a.matchScore||Number(b.sourceName==="컴퓨존")-Number(a.sourceName==="컴퓨존")).slice(0,3);
+    const searchSites=async(allowedDomains,phase)=>{
+      const response=await fetchImpl("https://api.openai.com/v1/responses",{method:"POST",headers:{Authorization:`Bearer ${settings.apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:settings.extractionModel||defaults.extractionModel,reasoning:{effort:"low"},tools:[{type:"web_search",filters:{allowed_domains:allowedDomains}}],tool_choice:"required",include:["web_search_call.action.sources"],instructions:`${externalPriceInstructions}\n이번 검색 단계: ${phase}`,input:JSON.stringify(requirement),store:false,text:{format:{type:"json_schema",name:externalPriceSchema.name,strict:true,schema:externalPriceSchema.value}}})});
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(payload.error?.message||`외부 가격 검색 오류 (${response.status})`);
+      return JSON.parse(responseText(payload)).products
+        .map(item=>{
+          const directMatch=scoreModelMatch(requirement.model,item.matchedModel);
+          const keywordMatch=scoreModelMatch(requested,item.matchedModel);
+          const match=directMatch.matchType==="exact"?directMatch:keywordMatch;
+          return {...item,requirementId:requirement.id,specificationGroup:requirement.specificationGroup,unitQuantity:requirement.unitQuantity,systemQuantity:requirement.systemQuantity,priceRole:requirement.priceRole,...match,...mergeCompatibility(requirement,item)};
+        })
+        .filter(item=>item.compatibilityStatus!=="incompatible"&&(item.matchType==="exact"||item.matchScore>=60||item.matchedKeywords.length>=2))
+        .filter(item=>Number(item.unitPrice)>0&&isDirectProductUrl(item.sourceUrl))
+        .sort((a,b)=>b.matchScore-a.matchScore||priceSourcePriority(a.sourceName)-priceSourcePriority(b.sourceName)||a.unitPrice-b.unitPrice)
+        .slice(0,3);
+    };
+    const primary=(await searchSites(["compuzone.co.kr","guidecom.co.kr"],"컴퓨존과 가이드컴만 검색한다."))
+      .filter(item=>item.sourceName==="컴퓨존"||item.sourceName==="가이드컴");
+    if(primary.length)return primary;
+    return (await searchSites(["danawa.com"],"앞 단계에 판매 가능한 후보가 없었다. 다나와 가격비교만 검색한다."))
+      .filter(item=>item.sourceName==="다나와");
   };
   const products=[];
-  for(let index=0;index<requirements.length;index+=3){const batch=await Promise.all(requirements.slice(index,index+3).map(searchOne));products.push(...batch.flat());}
-  return products.filter(item=>item.unitPrice>0&&/^https:\/\/(?:www\.)?(?:compuzone\.co\.kr|guidecom\.co\.kr)\//i.test(item.sourceUrl||""));
+  for(const requirement of requirements)products.push(...await searchOne(requirement));
+  return products;
 }
 
 export function reportToMarkdown(notice, report) {
