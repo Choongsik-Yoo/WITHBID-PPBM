@@ -40,7 +40,7 @@ function semanticClassification(requirement) {
     && !/\b(?:RTX|RADEON)\s*(?:PRO\s*)?\d{3,5}\b/i.test(text);
   if (osOnly && !hasOriginalProduct) return { category:"운영체제(O/S)", priceRole:"software" };
 
-  const complianceOnly = /(?:검수|검증|시험|테스트|성능\s*확인|결과\s*보고|보고서|매뉴얼|교육|사용법|하자|유지보수|기술지원|연동|설치\s*완료|구축\s*완료|초기\s*설정|환경\s*실사|납품\s*및\s*시스템\s*구축)/i.test(text)
+  const complianceOnly = /(?:검수|검증|시험|테스트|성능\s*확인|결과\s*보고|보고서|매뉴얼|교육|사용법|하자|유지보수|기술지원|연동|설치\s*완료|구축\s*완료|초기\s*설정|환경\s*실사|납품\s*및\s*시스템\s*구축|증명서|인증서|확인신고|입증|시험성적서)/i.test(text)
     && !hasOriginalProduct && !explicitlyPricedService;
   if (complianceOnly) return { category:"검수·이행 조건", priceRole:"non_price" };
 
@@ -53,6 +53,8 @@ function semanticClassification(requirement) {
 
 function specifiedModel(requirement) {
   if (clean(requirement.specifiedModel)) return clean(requirement.specifiedModel);
+  const modelConstraint = (requirement.constraints || []).find((item) => clean(item.field).toLowerCase() === "model" && clean(item.value));
+  if (modelConstraint) return clean(modelConstraint.value);
   const category = canonicalComponentCategory(requirement);
   const text = clean(`${requirement.condition || ""} ${requirement.evidence || ""}`);
   const patterns = ({

@@ -27,6 +27,23 @@ test("정확 CPU 모델은 가격 미확인 때 사용할 명시 모델로 보�
   assert.deepEqual(extraction.requirements[0].searchProfile.requiredKeywords.slice(0,2),["XEON","6960P"]);
 });
 
+test("메인보드처럼 전용 모델 정규식이 없어도 AI가 추출한 model 제약조건을 명시 모델로 사용한다",()=>{
+  const extraction=refineExtractedRequirements({requirements:[requirement({
+    category:"MAINBOARD",condition:"WRX90E SAGE 메인보드를 포함해야 함",evidence:"M/B WRX90E SAGE",
+    constraints:[{field:"model",operator:"==",value:"WRX90E SAGE",unit:null}],
+  })]});
+  assert.equal(extraction.requirements[0].specifiedModel,"WRX90E SAGE");
+  assert.equal(extraction.requirements[0].searchProfile.exactModel,"WRX90E SAGE");
+});
+
+test("PSU 용량 스펙 옆의 안전확인신고 증명서 제출 문장은 부품이 아닌 non_price로 분류한다",()=>{
+  const extraction=refineExtractedRequirements({requirements:[requirement({
+    id:"CERT",category:"POWER",condition:"PSU 안정성 입증을 위한 안전확인신고 증명서를 제출해야 함",
+    evidence:"PSU 안정성 입증을 위한 안전확인신고 증명서를 제출한다.",
+  })]});
+  assert.equal(extraction.requirements[0].priceRole,"non_price");
+});
+
 test("GPU 서버 이행조건과 운영체제를 VGA 부품으로 오분류하지 않는다",()=>{
   const extraction=refineExtractedRequirements({requirements:[
     requirement({id:"OS",category:"VGA",condition:"Ubuntu Linux LTS 설치 및 GPU 소프트웨어 환경 제공",evidence:"Ubuntu Linux LTS 설치"}),

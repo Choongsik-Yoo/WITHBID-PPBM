@@ -51,6 +51,17 @@ test("저장용량 숫자를 부품 수량으로 오인하지 않는다", () => 
   assert.equal(extraction.requirements[0].quantity, null);
 });
 
+test("표 형식 규격서처럼 단위어 없는 독립 수량도 근거로 인정한다", () => {
+  const tableBlocks = [{id:"T1", location:"규격서 p.1", text:"11 COOLER AIO 360MM LIQUID COOLER 1 동급 교체 가능"}];
+  const extraction = verifyExtraction({requirements:[rawRequirement({
+    id:"REQ-COOLER", category:"CPU 쿨러", condition:"AIO 360MM LIQUID COOLER",
+    evidence:"COOLER AIO 360MM LIQUID COOLER 1 동급 교체 가능", evidenceBlockIds:["T1"],
+    unitQuantity:1, systemQuantity:1, quantity:1, searchKeywords:["AIO 360MM"],
+  })],uncertainties:[]}, tableBlocks, {score:60,mode:"structured",reasons:[]});
+  assert.equal(extraction.requirements[0].unitQuantity, 1);
+  assert.equal(extraction.requirements[0].systemQuantity, 1);
+});
+
 test("완제품은 제외하고 자사 단가표 후보를 우선 선택한다", () => {
   const extraction = verifyExtraction({requirements:[
     rawRequirement({id:"REQ-SYSTEM",category:"본체사양 1",condition:"완제품 PC",evidence:"본체사양 1 납품수량 4대",evidenceBlockIds:["B1"],unitQuantity:null,priceRole:"complete_system"}),
@@ -63,6 +74,15 @@ test("완제품은 제외하고 자사 단가표 후보를 우선 선택한다",
   assert.deepEqual(plan.configuration.map((item) => item.category), ["CPU"]);
   assert.equal(plan.configuration[0].selectedModel, "자사 후보");
   assert.equal(plan.configuration[0].unitPrice, 120000);
+});
+
+test("가격 후보를 못 찾아도 가격 출처에 수동 확인용 검색 링크를 채운다",()=>{
+  const extraction={requirements:[
+    {...rawRequirement(),specifiedModel:"Intel Xeon 6960P",verificationStatus:"verified"},
+  ]};
+  const plan=buildVerifiedQuotePlan(extraction,[]);
+  assert.match(plan.configuration[0].source,/^https:\/\/.*compuzone/);
+  assert.match(plan.configuration[0].status,/검색으로 수동 확인 필요/);
 });
 
 test("판매가격을 못 찾아도 규격서의 정확 모델과 규격 후보를 공란으로 두지 않는다",()=>{

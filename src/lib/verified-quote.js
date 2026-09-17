@@ -1,4 +1,4 @@
-import { coreModelKeywords, priceSourcePriority, scoreModelMatch } from "./pricing.js";
+import { buildExternalSearches, coreModelKeywords, priceSourcePriority, scoreModelMatch } from "./pricing.js";
 import {
   canonicalComponentCategory,
   inferredSpecificationGroup,
@@ -45,7 +45,10 @@ function quantityGrounded(value, source) {
   const token = Number.isInteger(number) ? String(number) : String(number).replace(/0+$/, "").replace(/\.$/, "");
   const escaped = token.replace(".", "\\.");
   const text = String(source || "").replace(/,/g, "");
-  return new RegExp(`(?:${escaped}\\s*(?:대|개|식|세트|set|ea|본|조|장|매|라이선스)|(?:수량|qty|납품수량|1대당|장비당|시스템당)[^0-9]{0,20}${escaped}(?:[^0-9]|$))`, "i").test(text);
+  if (new RegExp(`(?:${escaped}\\s*(?:대|개|식|세트|set|ea|본|조|장|매|라이선스)|(?:수량|qty|납품수량|1대당|장비당|시스템당)[^0-9]{0,20}${escaped}(?:[^0-9]|$))`, "i").test(text)) return true;
+  // 표 형식 규격서는 수량이 단위어 없이 독립된 셀 값(예: "COOLER AIO 360MM LIQUID COOLER 1 동급 교체 가능")으로만 등장하는 경우가 많다.
+  // 숫자·문자와 붙어 있지 않은 독립 토큰이면(용량·모델번호 일부가 아니라는 뜻) 근거로 인정한다.
+  return new RegExp(`(?<![0-9.])${escaped}(?![0-9.a-zA-Z%])`, "i").test(text);
 }
 
 function unique(values) {
@@ -313,7 +316,10 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
   const configuration = quoteRequirements.map((requirement) => {
     const candidate = requirement.priceSearchAllowed === false ? null : selectCandidate(requirement, priceCandidates);
     const selectedModel = candidate?.model || requirement.specifiedModel || requirement.selectionLabel || null;
-    const source = candidate?.sourceUrl || candidate?.source || "";
+    const manualSearch = !candidate
+      ? buildExternalSearches({ model: requirement.specifiedModel || requirement.condition || requirement.evidence || "" })[0]
+      : null;
+    const source = candidate?.sourceUrl || candidate?.source || manualSearch?.searchUrl || "";
     let status = "단가 미확인";
     if (requirement.verificationStatus === "conflict") status = "요구조건 충돌 · 원문 확인 필요";
     else if (requirement.verificationStatus === "derived" && candidate) status = `호환 구성 보완 후보 · ${candidate.status || `일치도 ${candidate.matchScore ?? 0}%`}`;
@@ -323,6 +329,7 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
     else if (candidate) status = candidate.status || `${candidate.matchType === "exact" ? "동일모델" : "대체모델 후보"} · 일치도 ${candidate.matchScore ?? 0}%`;
     else if (requirement.specifiedModel) status = "규격서 명시 모델 · 단가 미확인";
     else if (requirement.selectionLabel) status = "핵심 규격 후보 · 판매 모델/단가 확인 필요";
+    if (!candidate && manualSearch) status = `${status} · ${manualSearch.sourceName} 검색으로 수동 확인 필요`;
     return {
       requirementId: requirement.id,
       category: canonicalComponentCategory(requirement),
