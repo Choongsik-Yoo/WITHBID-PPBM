@@ -62,6 +62,29 @@ test("표 형식 규격서처럼 단위어 없는 독립 수량도 근거로 인
   assert.equal(extraction.requirements[0].systemQuantity, 1);
 });
 
+test("RMT 지원 여부처럼 존재 유무만 묻는 문장은 같은 위치의 부품에 병합하고 별도 견적행을 만들지 않는다", () => {
+  const ramBlocks = [
+    {id:"R1", location:"규격서 p.3", text:"RAM : 128GB (4x32GB) DDR5 5600 DIMM ECC REG"},
+    {id:"R2", location:"규격서 p.3", text:"메모리 : RMT(Reliable Memory Technology) 제공 가능"},
+  ];
+  const extraction = verifyExtraction({requirements:[
+    rawRequirement({
+      id:"REQ-RAM", category:"RAM", condition:"128GB (4x32GB) DDR5 5600 DIMM ECC REG",
+      evidence:"RAM : 128GB (4x32GB) DDR5 5600 DIMM ECC REG", evidenceBlockIds:["R1"],
+      unitQuantity:1, systemQuantity:3, quantity:3, constraints:[], searchKeywords:["DDR5", "5600"],
+    }),
+    rawRequirement({
+      id:"REQ-RMT", category:"RAM", condition:"RMT(Reliable Memory Technology)를 제공할 수 있어야 함",
+      evidence:"메모리 : RMT(Reliable Memory Technology) 제공 가능", evidenceBlockIds:["R2"],
+      unitQuantity:null, systemQuantity:null, quantity:null,
+      constraints:[{field:"RMT 지원", operator:"exists", value:"true", unit:null}], searchKeywords:["RMT"],
+    }),
+  ],uncertainties:[]}, ramBlocks, {score:60,mode:"structured",reasons:[]});
+  assert.equal(extraction.requirements.filter((item) => item.category === "RAM").length, 1);
+  assert.match(extraction.requirements[0].evidence, /RMT/);
+  assert.ok(extraction.requirements[0].constraints.some((item) => item.field === "RMT 지원"));
+});
+
 test("완제품은 제외하고 자사 단가표 후보를 우선 선택한다", () => {
   const extraction = verifyExtraction({requirements:[
     rawRequirement({id:"REQ-SYSTEM",category:"본체사양 1",condition:"완제품 PC",evidence:"본체사양 1 납품수량 4대",evidenceBlockIds:["B1"],unitQuantity:null,priceRole:"complete_system"}),

@@ -107,6 +107,13 @@ function mergeDuplicate(left, right) {
   };
 }
 
+function isFeatureOnlyRequirement(requirement) {
+  // RMT(Reliable Memory Technology) 지원 여부처럼 "지원 가능한가"만 묻는 문장은
+  // 별도로 구매할 부품이 아니라 같은 위치의 부품이 갖춰야 할 기능 요건이다.
+  const constraints = requirement.constraints || [];
+  return constraints.length > 0 && constraints.every((item) => item.operator === "exists");
+}
+
 function collapseRequirements(requirements, uncertainties) {
   const result = [];
   for (const requirement of requirements) {
@@ -121,6 +128,23 @@ function collapseRequirements(requirements, uncertainties) {
     }
     const category = canonicalComponentCategory(requirement);
     const group = inferredSpecificationGroup(requirement) || "공통 품목";
+    if (isFeatureOnlyRequirement(requirement)) {
+      const featureTargetIndex = result.findIndex((candidate) =>
+        !["complete_system", "non_price"].includes(candidate.priceRole)
+        && canonicalComponentCategory(candidate) === category
+        && (inferredSpecificationGroup(candidate) || "공통 품목") === group);
+      if (featureTargetIndex >= 0) {
+        const previous = result[featureTargetIndex];
+        result[featureTargetIndex] = {
+          ...previous,
+          evidence: unique([previous.evidence, requirement.evidence]).join(" / "),
+          evidenceBlockIds: unique([...previous.evidenceBlockIds, ...requirement.evidenceBlockIds]),
+          constraints: [...previous.constraints, ...requirement.constraints],
+          searchKeywords: unique([...previous.searchKeywords, ...requirement.searchKeywords]),
+        };
+        continue;
+      }
+    }
     const conflictIndex = result.findIndex((candidate) =>
       singleSlotCategories.has(category)
       && canonicalComponentCategory(candidate) === category

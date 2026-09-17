@@ -36,6 +36,26 @@ test("메인보드처럼 전용 모델 정규식이 없어도 AI가 추출한 mo
   assert.equal(extraction.requirements[0].searchProfile.exactModel,"WRX90E SAGE");
 });
 
+test("NVIDIA RTX A시리즈(전문가용 Ampere) 모델도 정확 모델로 인식한다",()=>{
+  const extraction=refineExtractedRequirements({requirements:[requirement({
+    category:"VGA",condition:"NVIDIA RTX A1000 그래픽 처리장치를 포함해야 함",evidence:"GPU : NVIDIA RTX A1000, 8 GB GDDR6",
+  })]});
+  assert.equal(extraction.requirements[0].specifiedModel,"NVIDIA RTX A1000");
+  assert.equal(extraction.requirements[0].searchProfile.exactModel,"NVIDIA RTX A1000");
+});
+
+test("전원공급장치 W수가 원문에 없으면 CPU/GPU 소비전력 계산이 필요하다는 문구를 derived 조건에 남긴다",()=>{
+  const base={requirements:[
+    requirement({id:"CPU",category:"CPU",condition:"Intel Core Ultra 9 285K",specifiedModel:"Intel Core Ultra 9 285K",unitQuantity:1,quantity:1,constraints:[{field:"열설계전력",operator:"==",value:"125",unit:"W"}]}),
+    requirement({id:"RAM",category:"RAM",condition:"DDR5 ECC 64GB",unitQuantity:1,quantity:1}),
+    requirement({id:"GPU",category:"VGA",condition:"NVIDIA RTX A1000",specifiedModel:"NVIDIA RTX A1000",unitQuantity:1,quantity:1}),
+  ]};
+  const completed=completeCompatibilityRequirements(base);
+  const power=completed.requirements.find((item)=>item.category==="POWER"&&item.derivedFromCompatibility);
+  assert.match(power.condition,/125W/);
+  assert.match(power.condition,/소비전력 계산/);
+});
+
 test("PSU 용량 스펙 옆의 안전확인신고 증명서 제출 문장은 부품이 아닌 non_price로 분류한다",()=>{
   const extraction=refineExtractedRequirements({requirements:[requirement({
     id:"CERT",category:"POWER",condition:"PSU 안정성 입증을 위한 안전확인신고 증명서를 제출해야 함",

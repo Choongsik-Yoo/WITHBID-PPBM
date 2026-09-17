@@ -66,6 +66,7 @@ function specifiedModel(requirement) {
     ],
     VGA: [
       /\b(?:NVIDIA\s+)?(?:GEFORCE\s+)?RTX\s+PRO\s+\d{4,5}(?:\s+BLACKWELL)?(?:\s+SERVER\s+EDITION)?(?:\s+D\d)?(?:\s+\d+\s*GB)?\b/i,
+      /\b(?:NVIDIA\s+)?RTX\s+A\d{3,4}(?:\s+\d+\s*GB)?\b/i,
       /\b(?:NVIDIA\s+)?(?:GEFORCE\s+)?RTX\s+\d{4}(?:\s+[A-Z0-9-]+){0,4}(?:\s+\d+\s*GB)?\b/i,
     ],
     "운영체제(O/S)": [
@@ -184,6 +185,14 @@ function groupSystemQuantity(items) {
   return quantities.sort((left, right) => quantities.filter((value) => value === right).length - quantities.filter((value) => value === left).length)[0] || null;
 }
 
+function extractWattConstraint(item) {
+  if (!item) return null;
+  const constraint = (item.constraints || []).find((value) => /전력|TDP|와트|소비전력|열설계/i.test(value.field || "") && /W/i.test(value.unit || value.value || ""));
+  if (constraint) return `${constraint.value}${constraint.unit || "W"}`;
+  const match = String(item.condition || "").match(/\b(\d{2,4})\s*W\b/i);
+  return match ? `${match[1]}W` : null;
+}
+
 function derivedCondition(category, items) {
   const get = (wanted) => items.find((item) => !["complete_system", "non_price"].includes(item.priceRole) && canonicalComponentCategory(item) === wanted);
   const cpu = get("CPU");
@@ -194,7 +203,16 @@ function derivedCondition(category, items) {
   if (category === "MAINBOARD") return clean(`서버용 메인보드, CPU ${cpu?.specifiedModel || cpu?.condition || "요구 CPU"} 호환, ${ramKeywords ? `${ramKeywords} 메모리 지원,` : ""} ${vga?.unitQuantity ? `GPU ${vga.unitQuantity}개 장착 지원` : "GPU 장착 지원"}`);
   if (category === "CPU 쿨러") return clean(`서버용 CPU 쿨러, CPU ${cpu?.specifiedModel || cpu?.condition || "요구 CPU"} 소켓 및 TDP 호환`);
   if (category === "CASE") return clean(`서버 섀시, ${board?.condition ? `메인보드 ${board.condition} 장착,` : ""} ${vga?.unitQuantity ? `GPU ${vga.unitQuantity}개 장착 지원` : "GPU 장착 지원"}`);
-  if (category === "POWER") return clean(`서버용 전원공급장치, CPU ${cpu?.specifiedModel || "요구 CPU"} 및 ${vga?.condition || "GPU"} 구성의 정격 출력·보조전원 충족`);
+  if (category === "POWER") {
+    const cpuWatt = extractWattConstraint(cpu);
+    const vgaWatt = extractWattConstraint(vga);
+    const cpuLabel = cpu?.specifiedModel || cpu?.condition || "요구 CPU";
+    const vgaLabel = vga?.specifiedModel || vga?.condition || "GPU";
+    const wattageNote = (cpuWatt || vgaWatt)
+      ? `(CPU ${cpuWatt || "TDP 확인 필요"} + GPU ${vgaWatt || "TDP 확인 필요"} 기준 소비전력 계산 후 충분한 정격 출력 선정)`
+      : "(W수 미명시 — CPU·GPU 등 구성품 소비전력을 조사해 계산 후 충분한 정격 출력 선정)";
+    return clean(`전원공급장치, CPU ${cpuLabel} 및 VGA ${vgaLabel} 구성의 정격 출력·보조전원 충족 ${wattageNote}`);
+  }
   if (category === "RAM") return clean(`서버용 메모리, CPU ${cpu?.specifiedModel || cpu?.condition || "요구 CPU"} 및 메인보드 호환`);
   if (category === "M.2") return "서버용 운영체제 저장장치, 메인보드 인터페이스 호환";
   return `${category} 호환 구성품`;

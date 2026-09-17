@@ -107,6 +107,7 @@ const externalPriceInstructions=`한국 PC 부품 가격 조사자다. 자사 �
 입력의 searchProfile.queries를 위에서부터 차례로 검색한다. exactModel이 있으면 정확 모델 상품을 가장 먼저 찾고, 없으면 requiredKeywords의 필수 규격이 많이 일치하는 대체모델을 최대 3개 반환한다. 한 요구사항에 서로 다른 용량/모델을 합쳐 반환하지 않는다. 제조사나 색상보다 칩셋·소켓·용량·속도·전력·효율등급을 우선한다.
 핵심 키워드 예: 마이크로닉스 Classic II 850W 80PLUS GOLD는 850W·80PLUS·GOLD, RTX 5060 GAMING DUO D7 8GB는 RTX5060·D7·8GB, DDR5 PC5-48000 16GB는 DDR5-48000·16GB, Ultra 5 225는 Ultra5·225다.
 입력의 compatibilityContext에는 같은 사양 그룹에서 앞서 선정한 CPU·메인보드·그래픽카드 등의 정보가 있다. CPU 소켓, 메모리 DDR 규격, CPU 쿨러 소켓, 그래픽카드 권장 출력, 메인보드와 케이스 폼팩터를 대조한다. 불일치 후보는 compatibilityStatus를 incompatible로 기록하고 선정 후보로 추천하지 않는다. 확인할 정보가 부족하면 review로 표시한다.
+POWER 품목에 정격 출력(W)이 원문에 명시되지 않았으면, 구성된 CPU와 VGA(그래픽카드)의 공식 최대 소비전력(TDP/PL2)을 각각 검색해 확인하고 메인보드·메모리·저장장치·쿨러 등 나머지 구성 요소의 통상 소비전력을 더한 뒤 20~30% 이상의 여유율을 적용해 필요한 정격 출력을 계산한다. 계산한 용량 이상이면서 80PLUS 인증을 받은 실제 판매 중인 파워서플라이를 선정하고, status에 CPU/VGA 소비전력과 계산한 총 필요 용량을 구체적인 숫자로 기록한다.
 직접 상품 페이지에 표시된 현재 판매가격과 상품 상세 URL만 기록한다. 다나와는 prod.danawa.com/info/ 형식의 pcode가 있는 상품 상세 링크와 가격만 허용한다. 검색결과·카테고리·블로그 링크는 기록하지 않는다. 동일 제품 여러 개가 한 구성에 필요해도 unitPrice는 1개 가격이다.`;
 
 function isDirectProductUrl(value) {
