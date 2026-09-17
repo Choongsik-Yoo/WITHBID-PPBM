@@ -85,6 +85,39 @@ test("RMT 지원 여부처럼 존재 유무만 묻는 문장은 같은 위치의
   assert.ok(extraction.requirements[0].constraints.some((item) => item.field === "RMT 지원"));
 });
 
+test("구조화되지 않은 규격서에서 같은 GPU의 스펙을 나열한 여러 행은 모델이 확정된 VGA 행에 병합한다", () => {
+  const vgaBlocks = [
+    {id:"V1", location:"규격서 p.3", text:"NVIDIA RTX PRO 6000 Blackwell Server Edition 1개 장착"},
+    {id:"V2", location:"규격서 p.3", text:"GPU 메모리 96GB GDDR7, 512-bit, 대역폭 1.6TB/s"},
+    {id:"V3", location:"규격서 p.3", text:"CUDA 코어 24,064개"},
+  ];
+  const extraction = verifyExtraction({requirements:[
+    rawRequirement({
+      id:"REQ-GPU", category:"VGA", condition:"NVIDIA RTX PRO 6000 Blackwell Server Edition 1개 장착",
+      evidence:"NVIDIA RTX PRO 6000 Blackwell Server Edition 1개 장착", evidenceBlockIds:["V1"],
+      specifiedModel:"NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      unitQuantity:1, systemQuantity:1, quantity:1, constraints:[], searchKeywords:["RTX PRO 6000"],
+    }),
+    rawRequirement({
+      id:"REQ-GPU-MEM", category:"VGA", condition:"GPU 메모리 96GB GDDR7, 512-bit, 대역폭 1.6TB/s",
+      evidence:"GPU 메모리 96GB GDDR7, 512-bit, 대역폭 1.6TB/s", evidenceBlockIds:["V2"],
+      unitQuantity:null, systemQuantity:null, quantity:null,
+      constraints:[{field:"메모리", operator:"==", value:"96", unit:"GB"}], searchKeywords:["96GB"],
+    }),
+    rawRequirement({
+      id:"REQ-GPU-CUDA", category:"VGA", condition:"CUDA 코어 24,064개",
+      evidence:"CUDA 코어 24,064개", evidenceBlockIds:["V3"],
+      unitQuantity:null, systemQuantity:null, quantity:null,
+      constraints:[{field:"CUDA 코어", operator:"==", value:"24064", unit:"개"}], searchKeywords:["CUDA"],
+    }),
+  ],uncertainties:[]}, vgaBlocks, {score:60,mode:"structured",reasons:[]});
+  const vgaItems = extraction.requirements.filter((item) => item.category === "VGA");
+  assert.equal(vgaItems.length, 1);
+  assert.equal(vgaItems[0].specifiedModel, "NVIDIA RTX PRO 6000 Blackwell Server Edition");
+  assert.ok(vgaItems[0].constraints.some((item) => item.field === "메모리"));
+  assert.ok(vgaItems[0].constraints.some((item) => item.field === "CUDA 코어"));
+});
+
 test("완제품은 제외하고 자사 단가표 후보를 우선 선택한다", () => {
   const extraction = verifyExtraction({requirements:[
     rawRequirement({id:"REQ-SYSTEM",category:"본체사양 1",condition:"완제품 PC",evidence:"본체사양 1 납품수량 4대",evidenceBlockIds:["B1"],unitQuantity:null,priceRole:"complete_system"}),

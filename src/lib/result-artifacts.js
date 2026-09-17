@@ -49,7 +49,8 @@ function makeRows(group) {
   const isServerGroup = /서버|SERVER/i.test(group.name) || group.items.some((item) => /서버|SERVER/i.test(`${item.requirement || ""} ${item.evidence || ""}`));
   const rows = [];
   const rowFor = (category, defaults, item) => {
-    const wholeSystemMistake = item && /데스크[탑톱]|완제품|워크스테이션|프로맥스/i.test(String(item.selectedModel || ""));
+    // CASE는 랙마운트 GPU 서버처럼 베어본 완제품 자체가 정상적인 선정 결과일 수 있으므로 이 오인식 필터에서 제외한다.
+    const wholeSystemMistake = category !== "CASE" && item && /데스크[탑톱]|완제품|워크스테이션|프로맥스/i.test(String(item.selectedModel || ""));
     return {
       category,
       requirement:item?.requirement || defaults.requirement,

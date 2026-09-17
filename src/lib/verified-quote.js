@@ -5,6 +5,7 @@ import {
   isWholeSystemItem,
 } from "./quote-structure.js";
 import { normalizeEvidenceText } from "./document-analysis.js";
+import { explicitProductPattern } from "./requirement-refinement.js";
 
 const allowedRoles = new Set([
   "component", "peripheral", "software", "service", "complete_system", "non_price",
@@ -136,6 +137,27 @@ function collapseRequirements(requirements, uncertainties) {
       if (featureTargetIndex >= 0) {
         const previous = result[featureTargetIndex];
         result[featureTargetIndex] = {
+          ...previous,
+          evidence: unique([previous.evidence, requirement.evidence]).join(" / "),
+          evidenceBlockIds: unique([...previous.evidenceBlockIds, ...requirement.evidenceBlockIds]),
+          constraints: [...previous.constraints, ...requirement.constraints],
+          searchKeywords: unique([...previous.searchKeywords, ...requirement.searchKeywords]),
+        };
+        continue;
+      }
+    }
+    // 구조화되지 않은 규격서는 GPU 하나의 스펙(메모리 용량·대역폭, 아키텍처, CUDA 코어 수,
+    // 인터페이스·소비전력, 지원 라이브러리 등)이 여러 표 행으로 나뉘어 각각 VGA로 추출되기도 한다.
+    // 이런 행은 별도 구매 품목이 아니라 이미 모델명이 확정된 VGA 항목의 부가 사양이므로 병합한다.
+    if (category === "VGA" && !explicitProductPattern("VGA").test(`${requirement.condition || ""} ${requirement.evidence || ""}`)) {
+      const elaborationTargetIndex = result.findIndex((candidate) =>
+        !["complete_system", "non_price"].includes(candidate.priceRole)
+        && canonicalComponentCategory(candidate) === "VGA"
+        && (inferredSpecificationGroup(candidate) || "공통 품목") === group
+        && Boolean(clean(candidate.specifiedModel)));
+      if (elaborationTargetIndex >= 0) {
+        const previous = result[elaborationTargetIndex];
+        result[elaborationTargetIndex] = {
           ...previous,
           evidence: unique([previous.evidence, requirement.evidence]).join(" / "),
           evidenceBlockIds: unique([...previous.evidenceBlockIds, ...requirement.evidenceBlockIds]),
@@ -338,14 +360,16 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
   const quoteRequirements = sourceRequirements.filter((requirement) =>
     !isWholeSystemItem(requirement) && requirement.priceRole !== "complete_system" && requirement.priceRole !== "non_price");
   const configuration = quoteRequirements.map((requirement) => {
+    const isBundled = requirement.bundledUnitPrice != null;
     const candidate = requirement.priceSearchAllowed === false ? null : selectCandidate(requirement, priceCandidates);
     const selectedModel = candidate?.model || requirement.specifiedModel || requirement.selectionLabel || null;
-    const manualSearch = !candidate
+    const manualSearch = (!candidate && !isBundled)
       ? buildExternalSearches({ model: requirement.specifiedModel || requirement.condition || requirement.evidence || "" })[0]
       : null;
     const source = candidate?.sourceUrl || candidate?.source || manualSearch?.searchUrl || "";
     let status = "단가 미확인";
-    if (requirement.verificationStatus === "conflict") status = "요구조건 충돌 · 원문 확인 필요";
+    if (isBundled) status = "베어본에 포함된 구성품 · 중복 계상 방지를 위해 단가 0원 처리";
+    else if (requirement.verificationStatus === "conflict") status = "요구조건 충돌 · 원문 확인 필요";
     else if (requirement.verificationStatus === "derived" && candidate) status = `호환 구성 보완 후보 · ${candidate.status || `일치도 ${candidate.matchScore ?? 0}%`}`;
     else if (requirement.verificationStatus === "derived") status = "호환 구성 보완 · 판매 모델/단가 확인 필요";
     else if (requirement.verificationStatus !== "verified") status = "원문 근거 확인 필요";
@@ -359,7 +383,7 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
       category: canonicalComponentCategory(requirement),
       requirement: requirement.condition || requirement.evidence || "원문 확인 필요",
       selectedModel,
-      unitPrice: candidate ? Number(candidate.unitPrice) : null,
+      unitPrice: isBundled ? Number(requirement.bundledUnitPrice) : (candidate ? Number(candidate.unitPrice) : null),
       quantity: finitePositive(requirement.quantity),
       source,
       status,

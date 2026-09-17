@@ -56,6 +56,27 @@ test("전원공급장치 W수가 원문에 없으면 CPU/GPU 소비전력 계산
   assert.match(power.condition,/소비전력 계산/);
 });
 
+test("GPU 서버 베어본이 있으면 메인보드·CPU쿨러·전원공급장치를 별도 구매 품목으로 만들지 않는다",()=>{
+  const base={requirements:[
+    requirement({id:"CASE",category:"CASE",condition:"ASUS 4U GPU Server ESC8000-E12, 최대 8x GPU 탑재 지원",unitQuantity:1,quantity:1}),
+    requirement({id:"CPU",category:"CPU",condition:"Intel Xeon 6 6517P CPU 2개",specifiedModel:"Intel Xeon 6 6517P",unitQuantity:2,quantity:2}),
+    requirement({id:"RAM",category:"RAM",condition:"DDR5 ECC/REG 64GB 메모리 4개",unitQuantity:4,quantity:4}),
+    requirement({id:"GPU",category:"VGA",condition:"NVIDIA RTX PRO 6000 Blackwell Server Edition 1개 장착",unitQuantity:1,quantity:1}),
+  ]};
+  const completed=completeCompatibilityRequirements(base);
+  const mainboard=completed.requirements.find((item)=>item.category==="MAINBOARD");
+  const cooler=completed.requirements.find((item)=>item.category==="CPU 쿨러");
+  const power=completed.requirements.find((item)=>item.category==="POWER");
+  assert.equal(mainboard.bundledUnitPrice,0);
+  assert.equal(mainboard.priceSearchAllowed,false);
+  assert.match(mainboard.selectionLabel,/베어본 포함/);
+  assert.equal(cooler.bundledUnitPrice,0);
+  assert.equal(power.bundledUnitPrice,0);
+  const plan=buildVerifiedQuotePlan(completed,[]);
+  assert.equal(plan.configuration.find((item)=>item.category==="MAINBOARD").unitPrice,0);
+  assert.match(plan.configuration.find((item)=>item.category==="MAINBOARD").status,/베어본/);
+});
+
 test("PSU 용량 스펙 옆의 안전확인신고 증명서 제출 문장은 부품이 아닌 non_price로 분류한다",()=>{
   const extraction=refineExtractedRequirements({requirements:[requirement({
     id:"CERT",category:"POWER",condition:"PSU 안정성 입증을 위한 안전확인신고 증명서를 제출해야 함",

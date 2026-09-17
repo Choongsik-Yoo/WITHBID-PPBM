@@ -1,5 +1,12 @@
 const wholeSystemPattern = /전산기자재\s*전체|컴퓨터\s*본체\s*(?:사양)?\s*\d*$|데스크[탑톱]\s*컴퓨터\s*본체|완제품\s*(?:PC|컴퓨터)|본체\s*전체/i;
 const nonPricePattern = /입찰|보증서|사업자|등기부|인감|위임장|자격|대금\s*지급|공고\s*전체/i;
+// "ASUS 4U GPU Server ESC8000-E12"처럼 랙마운트 서버 섀시/베어본을 가리키는 문장은
+// "GPU"라는 단어가 있어도 그래픽카드가 아니라 섀시(CASE)로 분류해야 한다.
+const bareboneChassisPattern = /\b\d+U\s+(?:GPU\s+)?SERVER\b|바베본|베어본|BAREBONE/i;
+
+export function isBareboneChassisText(value) {
+  return bareboneChassisPattern.test(String(value || ""));
+}
 
 export function inferredSpecificationGroup(item = {}) {
   if (item.specificationGroup) return String(item.specificationGroup).trim();
@@ -20,20 +27,28 @@ export function isPriceableRequirement(item = {}) {
   return Boolean(String(item.condition || item.requirement || "").trim());
 }
 
+const categoryMappings = [
+  ["CPU 쿨러", /CPU.*쿨러|COOLER/i], ["MAINBOARD", /메인보드|MAINBOARD|MOTHERBOARD/i],
+  ["CPU", /CPU(?!.*쿨러)|프로세서/i], ["M.2", /M\.2|NVME|SSD/i],
+  ["HDD", /HDD|하드디스크/i], ["POWER", /파워|POWER|PSU/i],
+  ["VGA", /그래픽|VGA|GPU|RTX|RADEON/i], ["RAM", /메모리|\bRAM\b|DDR[45]/i],
+  ["CASE", /케이스|CASE/i], ["운영체제(O/S)", /운영체제|WINDOWS|O\/S/i],
+  ["K/B(OEM)", /키보드|K\/B/i], ["마우스패드", /마우스패드/i],
+  ["MOUSE(OEM)", /마우스|MOUSE/i], ["모니터", /모니터|MONITOR/i],
+];
+
 export function canonicalComponentCategory(item = {}) {
   const categoryText = String(item.category || "");
   const text = `${categoryText} ${item.requirement || item.condition || ""}`;
-  const mappings = [
-    ["CPU 쿨러", /CPU.*쿨러|COOLER/i], ["MAINBOARD", /메인보드|MAINBOARD|MOTHERBOARD/i],
-    ["CPU", /CPU(?!.*쿨러)|프로세서/i], ["M.2", /M\.2|NVME|SSD/i],
-    ["HDD", /HDD|하드디스크/i], ["POWER", /파워|POWER|PSU/i],
-    ["VGA", /그래픽|VGA|GPU|RTX|RADEON/i], ["RAM", /메모리|\bRAM\b|DDR[45]/i],
-    ["CASE", /케이스|CASE/i], ["운영체제(O/S)", /운영체제|WINDOWS|O\/S/i],
-    ["K/B(OEM)", /키보드|K\/B/i], ["마우스패드", /마우스패드/i],
-    ["MOUSE(OEM)", /마우스|MOUSE/i], ["모니터", /모니터|MONITOR/i],
-  ];
-  return mappings.find(([, pattern]) => pattern.test(categoryText))?.[0]
-    || mappings.find(([, pattern]) => pattern.test(text))?.[0]
+  const byCategoryText = categoryMappings.find(([, pattern]) => pattern.test(categoryText))?.[0];
+  if (byCategoryText) {
+    // "GPU"라는 단어만 보고 VGA로 잘못 분류된 경우에 한해, 랙마운트 서버 섀시/베어본 문구가 있으면 CASE로 바로잡는다.
+    // MAINBOARD/CPU 쿨러/POWER처럼 이미 명확한 카테고리는 "베어본 포함" 같은 문구가 본문에 있어도 그대로 둔다.
+    if (byCategoryText === "VGA" && bareboneChassisPattern.test(text)) return "CASE";
+    return byCategoryText;
+  }
+  if (bareboneChassisPattern.test(text)) return "CASE";
+  return categoryMappings.find(([, pattern]) => pattern.test(text))?.[0]
     || item.category || "기타";
 }
 

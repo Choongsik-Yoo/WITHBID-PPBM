@@ -1,5 +1,5 @@
 import { coreModelKeywords } from "./pricing.js";
-import { canonicalComponentCategory, inferredSpecificationGroup } from "./quote-structure.js";
+import { canonicalComponentCategory, inferredSpecificationGroup, isBareboneChassisText } from "./quote-structure.js";
 
 const HARDWARE_CATEGORIES = new Set(["CASE", "MAINBOARD", "CPU", "CPU 쿨러", "RAM", "M.2", "HDD", "POWER", "VGA"]);
 const ESSENTIAL_BOM_CATEGORIES = ["CASE", "MAINBOARD", "CPU", "CPU 쿨러", "RAM", "M.2", "POWER"];
@@ -17,7 +17,7 @@ function positive(value) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function explicitProductPattern(category) {
+export function explicitProductPattern(category) {
   return ({
     CPU: /\b(?:XEON|EPYC|RYZEN|CORE\s+ULTRA)\b[^\n,.;]{0,45}\b\d{3,5}[A-Z]?\b/i,
     VGA: /\b(?:RTX|RADEON|A\d{2,4}|L\d{2,4})\s*(?:PRO\s*)?\d{3,5}\b/i,
@@ -224,6 +224,15 @@ function derivedUnitQuantity(category, items) {
   return positive(cpu?.unitQuantity) || 1;
 }
 
+const BUNDLED_BY_BAREBONE = new Set(["MAINBOARD", "CPU 쿨러", "POWER"]);
+
+function findBareboneCase(items) {
+  return items.find((item) =>
+    !["complete_system", "non_price"].includes(item.priceRole)
+    && canonicalComponentCategory(item) === "CASE"
+    && isBareboneChassisText(`${item.condition || ""} ${item.evidence || ""}`));
+}
+
 export function completeCompatibilityRequirements(extraction = {}) {
   const requirements = [...(extraction.requirements || [])];
   const groups = new Map();
@@ -239,15 +248,24 @@ export function completeCompatibilityRequirements(extraction = {}) {
     const isComposableComputer = categories.has("CPU") && hardwareCount >= 3;
     if (!isComposableComputer) continue;
     const systemQuantity = groupSystemQuantity(items);
+    // ASUS ESC8000 같은 GPU 서버 베어본은 메인보드·CPU 쿨러·전원공급장치가 섀시에 이미 포함되어 있다.
+    // 이런 경우 그 부품들을 별도 구매 품목처럼 가격 조사하면 베어본 가격과 중복 계상된다.
+    const bareboneCase = findBareboneCase(items);
+    const bareboneLabel = bareboneCase && clean(bareboneCase.specifiedModel || bareboneCase.selectionLabel || bareboneCase.condition || "");
     for (const category of ESSENTIAL_BOM_CATEGORIES.filter((value) => !categories.has(value))) {
-      const condition = derivedCondition(category, items);
+      const bundledIntoBarebone = Boolean(bareboneLabel) && BUNDLED_BY_BAREBONE.has(category);
+      const condition = bundledIntoBarebone
+        ? clean(`${category} (${bareboneLabel} 베어본에 포함되어 별도 구매 불필요)`)
+        : derivedCondition(category, items);
       const unitQuantity = derivedUnitQuantity(category, items);
       const requirement = {
         id:`DERIVED-${String(added.length + 1).padStart(3, "0")}`,
         category,
         condition,
         quantity:systemQuantity ? systemQuantity * unitQuantity : null,
-        evidence:"규격서 직접 명시 없음 — 명시 부품의 호환 구성에 필요한 보완 항목",
+        evidence: bundledIntoBarebone
+          ? `${bareboneCase.evidence || bareboneCase.condition || ""} — 베어본에 포함되어 별도 구매 불필요`
+          : "규격서 직접 명시 없음 — 명시 부품의 호환 구성에 필요한 보완 항목",
         evidenceBlockIds:[],
         evidenceLocations:[],
         specificationGroup:group === "공통 품목" ? null : group,
@@ -260,13 +278,18 @@ export function completeCompatibilityRequirements(extraction = {}) {
         evidenceStatus:"derived",
         evidenceScore:0,
         verificationStatus:"derived",
-        priceSearchAllowed:true,
+        priceSearchAllowed: !bundledIntoBarebone,
         derivedFromCompatibility:true,
-        refinementNote:"전체 부품 구성 누락을 막기 위해 명시 부품 호환성 기준으로 생성",
+        refinementNote: bundledIntoBarebone
+          ? "베어본 섀시에 이미 포함된 구성 요소로 판단해 가격 조사 없이 0원(중복 계상 방지)으로 처리"
+          : "전체 부품 구성 누락을 막기 위해 명시 부품 호환성 기준으로 생성",
+        ...(bundledIntoBarebone ? { bundledUnitPrice:0 } : {}),
       };
-      requirement.specifiedModel = specifiedModel(requirement);
+      requirement.specifiedModel = bundledIntoBarebone ? null : specifiedModel(requirement);
       requirement.searchProfile = searchProfile(requirement);
-      requirement.selectionLabel = selectionLabel(requirement);
+      requirement.selectionLabel = bundledIntoBarebone
+        ? clean(`${bareboneLabel} 내장 ${category} — 베어본 포함`)
+        : selectionLabel(requirement);
       requirements.push(requirement);
       items.push(requirement);
       added.push(requirement);

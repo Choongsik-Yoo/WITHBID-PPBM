@@ -74,7 +74,7 @@ const extractionInstructions = `대한민국 조달공고와 첨부 문서의 �
 장비 전체 납품수량은 systemQuantity, 장비 1대당 부품 수량은 unitQuantity, 전체 부품수량은 quantity에 기록한다.
 수량이 원문에 없으면 1로 추정하지 말고 null로 둔다. 두 수량이 확인되면 quantity=systemQuantity*unitQuantity로 계산한다.
 정확 모델과 '동급 이상' 사양을 구분한다. 용량·속도·전력·효율·규격은 constraints에 구조화하고 검색 핵심어를 searchKeywords에 기록한다.
-GPU 서버라는 단어만 보고 VGA로 분류하지 않는다. Ubuntu·Windows·Linux는 software/운영체제, 성능검증·보고서·매뉴얼·교육·연동·설치완료 조건은 실제 부품 사양이 없으면 non_price, 장비 전체 목적·용도 문장은 complete_system으로 분류한다.
+GPU 서버라는 단어만 보고 VGA로 분류하지 않는다. 'ASUS 4U GPU Server ESC8000-E12, 최대 8x GPU 탑재 지원'처럼 랙 유닛(nU)·브랜드·모델명이 있는 문장은 그래픽카드가 아니라 섀시(CASE)이며, evidence에 근거가 있으면 condition에 '베어본 포함'을 명시해 메인보드·CPU 쿨러·전원공급장치를 이 섀시가 이미 포함하고 있음을 표시한다. 같은 그래픽카드 모델의 메모리 용량·대역폭·아키텍처·CUDA 코어 수·인터페이스/소비전력·지원 소프트웨어 라이브러리처럼 새 모델명 없이 스펙만 나열하는 문장은 별도 VGA 행이 아니라 그 모델을 명시한 VGA 행의 constraints로 합친다. Ubuntu·Windows·Linux는 software/운영체제, 성능검증·보고서·매뉴얼·교육·연동·설치완료 조건은 실제 부품 사양이 없으면 non_price, 장비 전체 목적·용도 문장은 complete_system으로 분류한다.
 입찰자격·제출서류·검수조건·일반 납기 문장은 non_price로 분류한다. 별도 수량이나 비용 항목으로 명시된 설치·교육만 service로 분류한다.
 CPU·GPU처럼 원문에 정확 모델이 있으면 모델 문자열 전체를 searchKeywords 첫 항목에 넣는다. 일반규격은 제품종류, 인터페이스, 용량, 속도, 전력, 효율등급 순서로 검색어를 만든다.
 evidence는 요약이 아니라 원문 구절을 인용하고, evidenceBlockIds에는 실제 근거 block ID만 기록한다. 원문에 없는 모델·수량·사양은 만들지 않는다.`;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildQuoteGroups, isPriceableRequirement } from "../src/lib/quote-structure.js";
+import { buildQuoteGroups, canonicalComponentCategory, isPriceableRequirement } from "../src/lib/quote-structure.js";
 
 test("완제품 본체와 행정 요구사항은 가격 검색에서 제외한다",()=>{
   assert.equal(isPriceableRequirement({category:"데스크탑 컴퓨터 본체 사양 1",quantity:4,priceRole:"complete_system"}),false);
@@ -26,6 +26,11 @@ test("SSD의 DRAM과 GPU의 VRAM 문구를 메모리 품목으로 오인하지 �
     {category:"메모리 사양 1",requirement:"DDR5 64GB",quantity:8,specificationGroup:"본체사양 1"},
   ]);
   assert.deepEqual(groups[0].items.map(item=>item.category),["M.2","VGA","RAM"]);
+});
+
+test("nU GPU 서버 베어본 섀시 설명은 GPU 단어가 있어도 그래픽카드가 아니라 CASE로 분류한다",()=>{
+  assert.equal(canonicalComponentCategory({category:"VGA",condition:"ASUS 4U GPU Server ESC8000-E12, 최대 8x GPU 탑재 지원"}),"CASE");
+  assert.equal(canonicalComponentCategory({category:"VGA",condition:"NVIDIA RTX PRO 6000 Blackwell Server Edition 1개 장착"}),"VGA");
 });
 
 test("원문에 1대당 수량이 없으면 임의로 1을 채우지 않는다",()=>{
