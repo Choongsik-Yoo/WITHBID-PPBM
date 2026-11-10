@@ -43,11 +43,14 @@ $readme = @"
 WITHBID-PPBM 데스크탑 설치 패키지
 
 1. 이 ZIP 파일을 PC의 로컬 폴더에 압축 해제합니다.
-2. 파일 탐색기에서 \\Withusnas1\입찰관리 를 열고 NAS 로그인을 완료합니다.
-3. Install-WITHBID-PPBM.cmd를 더블클릭합니다.
-4. 바탕화면의 WITHBID-PPBM 아이콘으로 실행합니다.
+2. Install-WITHBID-PPBM.cmd를 더블클릭합니다.
+3. 바탕화면의 WITHBID-PPBM 아이콘으로 실행합니다.
+4. 사내에서는 파일 탐색기에서 \\Withusnas1\입찰관리 로그인을 완료합니다.
+5. 외부에서 NAS에 연결할 수 없으면 관리자만 경고창에 동의하여 D:\입찰관리 로컬 모드를 사용할 수 있습니다.
+6. 관리자 로컬 모드는 csyoo22@gmail.com 계정만 로그인할 수 있으며 OAuth 클라이언트 ID와 API 키를 최초 1회 별도 등록합니다.
 
 NAS 비밀번호는 앱에 저장되지 않으며 현재 Windows 사용자의 NAS 로그인 세션을 사용합니다.
+관리자 로컬 모드의 작업결과는 NAS로 자동 동기화되지 않습니다.
 "@
 Set-Content -LiteralPath (Join-Path $packageRoot "INSTALL-KO.txt") -Value $readme -Encoding UTF8
 

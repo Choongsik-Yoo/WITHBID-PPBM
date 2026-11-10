@@ -27,8 +27,12 @@
     <div class="user-area"><span id="currentUser" class="pill">로그인 확인 중</span><button id="logoutButton" class="text-button" type="button" hidden>로그아웃</button><span id="connection" class="pill">연결 확인 중</span></div>
   </header>
   <main>
+    <aside id="storageModeBanner" class="storage-mode-banner" hidden role="status">
+      <strong>관리자 로컬 모드 · NAS 미연결</strong>
+      <span id="storageModeMessage">이 노트북의 D:\입찰관리에 저장 중입니다. 작업결과는 NAS로 자동 동기화되지 않습니다. API 키는 로컬 설정에 최초 1회 별도 등록해야 합니다.</span>
+    </aside>
     <section class="hero">
-      <div><p class="eyebrow">SHARED PROCUREMENT WORKSPACE</p><h1>조달공고를 근거 중심으로<br>검토하고 견적하세요.</h1><p class="lead">공고 원문과 분석결과는 WITHUSNAS1의 입찰관리 공유폴더에 보관됩니다.</p></div>
+      <div><p class="eyebrow">SHARED PROCUREMENT WORKSPACE</p><h1>조달공고를 근거 중심으로<br>검토하고 견적하세요.</h1><p id="storageDescription" class="lead">공고 원문과 분석결과는 WITHUSNAS1의 입찰관리 공유폴더에 보관됩니다.</p></div>
       <div class="summary-card"><span>데이터 저장 위치</span><strong id="dataRoot">확인 중…</strong><div class="stats"><div><b id="noticeCount">0</b><small>진행 공고</small></div><div><b id="priceCount">0</b><small>등록 단가</small></div></div></div>
     </section>
 
@@ -63,7 +67,7 @@
         <label class="wide">공고명<input name="title" required placeholder="공고명을 입력하세요"></label>
         <label>수요기관<input name="organization" placeholder="기관명"></label>
         <label>나라장터 URL<input name="sourceUrl" type="url" placeholder="https://..."></label>
-        <div class="wide actions"><button class="primary" type="submit">D드라이브에 공고 폴더 만들기</button></div>
+        <div class="wide actions"><button id="createNoticeButton" class="primary" type="submit">공고 폴더 만들기</button></div>
       </form>
     </section>
 
@@ -106,7 +110,7 @@
         <form id="opalResultForm" class="panel form-stack">
           <div class="step-title"><span>3</span><div><h3>분석 결과 저장</h3><p>Opal이 작성한 결과 전문을 붙여넣으세요.</p></div></div>
           <textarea id="opalResult" name="result" rows="15" required placeholder="Opal 분석 결과를 붙여넣으세요."></textarea>
-          <button class="primary full" type="submit">D드라이브에 결과 저장</button>
+          <button id="opalSaveButton" class="primary full" type="submit">분석 결과 저장</button>
         </form>
       </div>
     </section>
@@ -116,7 +120,7 @@
         <label class="wide">OpenAI API 키<input name="apiKey" type="password" autocomplete="off" placeholder="새 키를 입력하거나 기존 키를 유지하세요"><small id="keyStatus">등록되지 않음</small></label>
         <label>문서 추출 모델<input name="extractionModel" value="gpt-5.6-luna"></label>
         <label>최종 판단 모델<input name="analysisModel" value="gpt-5.6-terra"></label>
-        <p class="wide privacy-note">키는 D드라이브 설정 폴더에만 저장되며 화면·로그·GitHub에 표시되지 않습니다.</p>
+        <p id="openaiPrivacyNote" class="wide privacy-note">키는 선택된 저장 위치의 설정 폴더에만 저장되며 화면·로그·GitHub에 표시되지 않습니다.</p>
         <div class="wide actions"><button class="primary" type="submit">API 설정 저장</button></div>
       </form>
       <form id="g2bSettingsForm" class="panel form-grid settings-gap">

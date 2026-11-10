@@ -16,12 +16,13 @@ import { quoteWorkbookBuffer, reportToDashboardHtml } from "./lib/result-artifac
 import { convertHancomAttachments } from "./lib/hancom.js";
 import { expandZipAttachments } from "./lib/archives.js";
 import { convertExcelAttachments } from "./lib/excel.js";
-import { cookieValue, createSession, newSecret, normalizeUsers, readSession, verifyGoogleCredential } from "./lib/auth.js";
+import { cookieValue, createSession, ensureLocalAdmin, newSecret, normalizeUsers, readSession, verifyGoogleCredential } from "./lib/auth.js";
 import { openNoticeFolder } from "./lib/folder-launcher.js";
 import { assessDocumentStructure, extractDocumentBlocks } from "./lib/document-analysis.js";
 import { buildVerifiedQuotePlan, verifyExtraction } from "./lib/verified-quote.js";
 import { buildCompatibilityContext, COMPONENT_RESEARCH_ORDER, pricingGroupName, sortRequirementsForPricing } from "./lib/compatibility.js";
 import { completeCompatibilityRequirements, refineExtractedRequirements } from "./lib/requirement-refinement.js";
+import { createSettingsStore } from "./lib/secure-settings.js";
 
 const config = getConfig();
 const appRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -33,6 +34,7 @@ const openaiSettingsFile = path.join(config.dataRoot, "_설정", "openai.json");
 const g2bSettingsFile = path.join(config.dataRoot, "_설정", "g2b.json");
 const authSettingsFile = path.join(config.dataRoot, "_설정", "auth.json");
 const authorizedUsersFile = process.env.AUTHORIZED_USERS_FILE || path.join(appRoot,"config","authorized-users.local.json");
+const settingsStore=createSettingsStore({protectedMode:config.localAdminMode});
 const progressJobs=new Map();
 function updateProgress(jobId,percent,stage,message,status="running"){if(!jobId)return;progressJobs.set(jobId,{jobId,percent,stage,message,status,updatedAt:new Date().toISOString()});setTimeout(()=>progressJobs.delete(jobId),30*60*1000).unref();}
 
@@ -51,13 +53,30 @@ async function saveAttachmentFiles(base, files) {
 }
 
 await ensureDataLayout(config.dataRoot);
-const initialAuth = await readJson(authSettingsFile, {});
+const initialAuth = await settingsStore.read(authSettingsFile, {}, ["sessionSecret"]);
 const seededUsers = await readJson(authorizedUsersFile, []);
-await writeJson(authSettingsFile, {
+let initialUsers=Array.isArray(initialAuth.users) ? normalizeUsers(initialAuth.users) : normalizeUsers(seededUsers);
+if(config.localAdminMode)initialUsers=ensureLocalAdmin(initialUsers,config.localAdminEmail);
+let authCache = {
   clientId:String(process.env.GOOGLE_CLIENT_ID || initialAuth.clientId || "").trim(),
   sessionSecret:initialAuth.sessionSecret || newSecret(),
-  users:Array.isArray(initialAuth.users) ? normalizeUsers(initialAuth.users) : normalizeUsers(seededUsers),
-});
+  users:initialUsers,
+};
+await settingsStore.write(authSettingsFile,authCache,["sessionSecret"]);
+let openaiSettingsCache=config.localAdminMode?await settingsStore.read(openaiSettingsFile,{},["apiKey"]):null;
+let g2bSettingsCache=config.localAdminMode?await settingsStore.read(g2bSettingsFile,{},["apiKey"]):null;
+if(config.localAdminMode){
+  if(openaiSettingsCache.apiKey)await settingsStore.write(openaiSettingsFile,openaiSettingsCache,["apiKey"]);
+  if(g2bSettingsCache.apiKey)await settingsStore.write(g2bSettingsFile,g2bSettingsCache,["apiKey"]);
+  await writeJson(path.join(config.dataRoot,"_설정","storage-mode.json"),{
+    mode:config.storageMode,
+    dataRoot:config.dataRoot,
+    nasRoot:config.nasRoot,
+    localAdminEmail:config.localAdminEmail,
+    consentAt:config.localModeConsentAt,
+    warning:"로컬 작업결과는 NAS로 자동 동기화되지 않습니다.",
+  });
+}
 
 function json(response, status, value) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -89,8 +108,38 @@ async function saveState(state) {
 }
 
 async function loadAuthSettings() {
-  const value = await readJson(authSettingsFile, {});
+  if(config.localAdminMode)return authCache;
+  const value = await settingsStore.read(authSettingsFile, {}, ["sessionSecret"]);
   return { ...value, users:Array.isArray(value.users) ? normalizeUsers(value.users) : [] };
+}
+
+async function saveAuthSettings(value) {
+  const normalized={...value,users:Array.isArray(value.users)?normalizeUsers(value.users):[]};
+  if(config.localAdminMode){
+    normalized.users=ensureLocalAdmin(normalized.users,config.localAdminEmail);
+    authCache=normalized;
+  }
+  await settingsStore.write(authSettingsFile,normalized,["sessionSecret"]);
+}
+
+async function loadOpenAISettings() {
+  if(config.localAdminMode)return openaiSettingsCache;
+  return settingsStore.read(openaiSettingsFile,{},["apiKey"]);
+}
+
+async function saveOpenAISettings(value) {
+  if(config.localAdminMode)openaiSettingsCache=value;
+  await settingsStore.write(openaiSettingsFile,value,["apiKey"]);
+}
+
+async function loadG2bSettings() {
+  if(config.localAdminMode)return g2bSettingsCache;
+  return settingsStore.read(g2bSettingsFile,{},["apiKey"]);
+}
+
+async function saveG2bSettings(value) {
+  if(config.localAdminMode)g2bSettingsCache=value;
+  await settingsStore.write(g2bSettingsFile,value,["apiKey"]);
 }
 
 function requireAdmin(request) {
@@ -121,21 +170,23 @@ const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
     const auth = await loadAuthSettings();
     const authEnabled = Boolean(auth.clientId);
-    const sessionUser = authEnabled ? readSession(cookieValue(request, "withbid_session"), auth.sessionSecret, auth.users) : null;
+    const restoredSession = authEnabled ? readSession(cookieValue(request, "withbid_session"), auth.sessionSecret, auth.users) : null;
+    const sessionUser = config.localAdminMode && restoredSession
+      && (restoredSession.role !== "admin" || restoredSession.email !== config.localAdminEmail) ? null : restoredSession;
     const publicAuthPaths = new Set(["/api/app-info", "/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
 
     if (request.method === "GET" && url.pathname === "/api/app-info") {
-      return json(response, 200, { app: "WITHBID-PPBM", version: "0.6.6", dataRoot: config.dataRoot });
+      return json(response, 200, { app: "WITHBID-PPBM", version: "0.7.0", dataRoot: config.dataRoot, storageMode:config.storageMode, localAdminMode:config.localAdminMode, nasRoot:config.nasRoot });
     }
 
     if (request.method === "GET" && url.pathname === "/api/auth/config") {
-      return json(response, 200, { configured:authEnabled, clientId:auth.clientId || null, userCount:auth.users.filter((item)=>item.enabled).length });
+      return json(response, 200, { configured:authEnabled, clientId:auth.clientId || null, userCount:auth.users.filter((item)=>item.enabled).length, localAdminMode:config.localAdminMode, requiredAdminEmail:config.localAdminMode?config.localAdminEmail:null });
     }
     if (request.method === "POST" && url.pathname === "/api/auth/bootstrap") {
       if (authEnabled) throw new Error("Google 인증 설정은 이미 완료되었습니다.");
       const input=await bodyJson(request); const clientId=String(input.clientId || "").trim();
       if (!/^[0-9]+-[a-z0-9_-]+\.apps\.googleusercontent\.com$/i.test(clientId)) throw new Error("올바른 Google OAuth 웹 클라이언트 ID를 입력하세요.");
-      await writeJson(authSettingsFile,{...auth,clientId});
+      await saveAuthSettings({...auth,clientId});
       return json(response,200,{configured:true,clientId,userCount:auth.users.filter((item)=>item.enabled).length});
     }
     if (request.method === "POST" && url.pathname === "/api/auth/google") {
@@ -143,6 +194,7 @@ const server = http.createServer(async (request, response) => {
       const input=await bodyJson(request); const profile=await verifyGoogleCredential(input.credential,auth.clientId);
       const user=auth.users.find((item)=>item.email===profile.email&&item.enabled);
       if (!user) throw new Error("사용이 승인되지 않은 Google 계정입니다. 관리자에게 문의하세요.");
+      if(config.localAdminMode&&(user.role!=="admin"||user.email!==config.localAdminEmail))throw new Error(`관리자 로컬 모드는 ${config.localAdminEmail} 관리자 계정만 사용할 수 있습니다.`);
       response.setHeader("Set-Cookie",`withbid_session=${encodeURIComponent(createSession(user,auth.sessionSecret))}; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800`);
       return json(response,200,{user});
     }
@@ -151,7 +203,10 @@ const server = http.createServer(async (request, response) => {
       return json(response,200,{ok:true});
     }
     if (request.method === "GET" && url.pathname === "/api/auth/me") {
-      return json(response,200,{configured:authEnabled,authenticated:Boolean(sessionUser),user:sessionUser});
+      return json(response,200,{configured:authEnabled,authenticated:Boolean(sessionUser),user:sessionUser,localAdminMode:config.localAdminMode});
+    }
+    if (url.pathname.startsWith("/api/") && config.localAdminMode && !authEnabled && !publicAuthPaths.has(url.pathname)) {
+      return json(response,401,{error:"관리자 로컬 모드를 사용하려면 Google OAuth 설정과 관리자 로그인이 필요합니다."});
     }
     if (url.pathname.startsWith("/api/") && !publicAuthPaths.has(url.pathname) && authEnabled && !sessionUser) {
       return json(response,401,{error:"Google 로그인이 필요합니다."});
@@ -166,17 +221,17 @@ const server = http.createServer(async (request, response) => {
       const email=String(input.email||"").trim().toLowerCase(); const name=String(input.name||"").trim(); const role=input.role==="admin"?"admin":"member";
       if(!/^\S+@\S+\.\S+$/.test(email)||!name)throw new Error("직원 이름과 올바른 Google 이메일을 입력하세요.");
       const users=auth.users.filter((item)=>item.email!==email);users.push({name,email,role,enabled:true});
-      await writeJson(authSettingsFile,{...auth,users});return json(response,201,{name,email,role,enabled:true});
+      await saveAuthSettings({...auth,users});return json(response,201,{name,email,role,enabled:true});
     }
     if (request.method === "DELETE" && url.pathname.startsWith("/api/admin/users/")) {
       requireAdmin(request); const email=decodeURIComponent(url.pathname.slice("/api/admin/users/".length)).toLowerCase();
       if(email===request.user.email)throw new Error("현재 로그인한 관리자 계정은 삭제할 수 없습니다.");
       const users=auth.users.filter((item)=>item.email!==email);if(users.length===auth.users.length)throw new Error("사용자를 찾지 못했습니다.");
-      await writeJson(authSettingsFile,{...auth,users});return json(response,200,{ok:true});
+      await saveAuthSettings({...auth,users});return json(response,200,{ok:true});
     }
     if (request.method === "GET" && url.pathname === "/api/status") {
       const state = await loadState();
-      return json(response, 200, { dataRoot: config.dataRoot, noticeCount: state.notices.length, priceCount: state.priceList.items.length, priceImportedAt: state.priceList.importedAt });
+      return json(response, 200, { dataRoot: config.dataRoot, storageMode:config.storageMode, localAdminMode:config.localAdminMode, nasRoot:config.nasRoot, noticeCount: state.notices.length, priceCount: state.priceList.items.length, priceImportedAt: state.priceList.importedAt });
     }
     if(request.method==="GET"&&url.pathname==="/api/automation/progress"){const jobId=String(url.searchParams.get("id")||"");const progress=progressJobs.get(jobId);return progress?json(response,200,progress):json(response,200,{jobId,percent:1,stage:"공고 조회",message:"분석 요청을 준비하고 있습니다.",status:"waiting"});}
     if (request.method === "GET" && url.pathname === "/api/notices") {
@@ -206,24 +261,24 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === "GET" && url.pathname === "/api/settings/openai") {
       requireAdmin(request);
-      return json(response, 200, redactSettings(await readJson(openaiSettingsFile, {})));
+      return json(response, 200, redactSettings(await loadOpenAISettings()));
     }
     if (request.method === "POST" && url.pathname === "/api/settings/openai") {
       requireAdmin(request);
       const input = await bodyJson(request);
-      const previous = await readJson(openaiSettingsFile, {});
+      const previous = await loadOpenAISettings();
       const settings = { apiKey:String(input.apiKey || previous.apiKey || "").trim(), extractionModel:String(input.extractionModel || "gpt-5.6-luna"), analysisModel:String(input.analysisModel || "gpt-5.6-terra") };
       if (!settings.apiKey) throw new Error("OpenAI API 키를 입력해 주세요.");
-      await writeJson(openaiSettingsFile, settings);
+      await saveOpenAISettings(settings);
       return json(response, 200, redactSettings(settings));
     }
-    if (request.method === "GET" && url.pathname === "/api/settings/g2b") { requireAdmin(request); const value=await readJson(g2bSettingsFile,{}); return json(response,200,{configured:Boolean(value.apiKey),keyHint:value.apiKey?`${value.apiKey.slice(0,4)}…${value.apiKey.slice(-4)}`:""}); }
-    if (request.method === "POST" && url.pathname === "/api/settings/g2b") { requireAdmin(request); const input=await bodyJson(request); const previous=await readJson(g2bSettingsFile,{}); const apiKey=String(input.apiKey||previous.apiKey||"").trim(); if(!apiKey) throw new Error("나라장터 API 키를 입력해 주세요."); await writeJson(g2bSettingsFile,{apiKey}); return json(response,200,{configured:true,keyHint:`${apiKey.slice(0,4)}…${apiKey.slice(-4)}`}); }
+    if (request.method === "GET" && url.pathname === "/api/settings/g2b") { requireAdmin(request); const value=await loadG2bSettings(); return json(response,200,{configured:Boolean(value.apiKey),keyHint:value.apiKey?`${value.apiKey.slice(0,4)}…${value.apiKey.slice(-4)}`:""}); }
+    if (request.method === "POST" && url.pathname === "/api/settings/g2b") { requireAdmin(request); const input=await bodyJson(request); const previous=await loadG2bSettings(); const apiKey=String(input.apiKey||previous.apiKey||"").trim(); if(!apiKey) throw new Error("나라장터 API 키를 입력해 주세요."); await saveG2bSettings({apiKey}); return json(response,200,{configured:true,keyHint:`${apiKey.slice(0,4)}…${apiKey.slice(-4)}`}); }
     if (request.method === "POST" && url.pathname === "/api/automation/analyze-link") {
       const input = await bodyJson(request);
       activeJobId=/^[a-zA-Z0-9-]{8,80}$/.test(String(input.jobId||""))?String(input.jobId):null;updateProgress(activeJobId,3,"공고 조회","API 설정과 공고 링크를 확인하고 있습니다.");
-      const settings = await readJson(openaiSettingsFile, {});
-      const g2bSettings = await readJson(g2bSettingsFile, {});
+      const settings = await loadOpenAISettings();
+      const g2bSettings = await loadG2bSettings();
       if (!settings.apiKey) throw new Error("설정에서 OpenAI API 키를 먼저 등록해 주세요.");
       const sourceUrl = String(input.sourceUrl || "").trim();
       let parsedSource;
@@ -350,7 +405,7 @@ const server = http.createServer(async (request, response) => {
       if(quotePlan.blockingIssueCount>0&&decision.decision==="참가")decision={...decision,decision:"조건부 참가",summary:`필수 확인사항 ${quotePlan.blockingIssueCount}건이 있어 조건부 참가로 조정했습니다. ${decision.summary}`};
       const auditMessages=quotePlan.audit.map(item=>item.message);
       const report={...decision,configuration:quotePlan.configuration,quoteAudit:quotePlan.audit,risks:[...new Set([...(decision.risks||[]),...auditMessages])],checklist:[...new Set([...(decision.checklist||[]),...auditMessages])],};
-      updateProgress(activeJobId,94,"결과 저장","대시보드와 견적서를 NAS 입찰관리 폴더에 저장하고 있습니다.");
+      updateProgress(activeJobId,94,"결과 저장",`대시보드와 견적서를 ${config.localAdminMode?"관리자 로컬":"NAS 입찰관리"} 폴더에 저장하고 있습니다.`);
       await writeJson(path.join(base,"06_분석결과","AI_판단결과.json"),report);
       const reportPath=path.join(base,"06_분석결과","참가판단리포트.md"); await fs.writeFile(reportPath,reportToMarkdown(notice,report),"utf8");
       const dashboardPath=path.join(base,"06_분석결과","입찰참가판단_대시보드.html"); await fs.writeFile(dashboardPath,reportToDashboardHtml(notice,report,extraction),"utf8");
@@ -438,4 +493,5 @@ const server = http.createServer(async (request, response) => {
 server.listen(config.port, config.host, () => {
   console.log(`WITHBID-PPBM: http://${config.host}:${config.port}`);
   console.log(`데이터 저장 위치: ${config.dataRoot}`);
+  console.log(`저장 모드: ${config.localAdminMode?"관리자 로컬 (NAS 미연결)":"NAS 공유"}`);
 });

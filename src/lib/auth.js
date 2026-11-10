@@ -17,6 +17,20 @@ export function normalizeUsers(users = []) {
   return [...unique.values()];
 }
 
+export function ensureLocalAdmin(users = [], adminEmail = "") {
+  const email = normalizeEmail(adminEmail);
+  const normalized = normalizeUsers(users);
+  if (!/^\S+@\S+\.\S+$/.test(email)) return normalized;
+  const existing = normalized.find((item) => item.email === email);
+  const admin = {
+    name:existing?.name || "관리자",
+    email,
+    role:"admin",
+    enabled:true,
+  };
+  return [admin, ...normalized.filter((item) => item.email !== email)];
+}
+
 export function createSession(user, secret, now = Date.now()) {
   const payload = encode(JSON.stringify({
     email:user.email, name:user.name, role:user.role,

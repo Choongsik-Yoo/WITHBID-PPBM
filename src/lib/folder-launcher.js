@@ -43,7 +43,7 @@ export async function openNoticeFolder({ dataRoot, folderName, platform = proces
     if (error.message === "directory_expected" || error.code === "ENOENT") {
       throw new Error("해당 공고의 결과 폴더를 찾을 수 없습니다.");
     }
-    throw new Error(`NAS 입찰관리 공유폴더에 접근할 수 없습니다. 파일 탐색기에서 \\\\Withusnas1\\입찰관리에 로그인한 뒤 다시 시도하세요. (${error.message})`);
+    throw new Error(`입찰관리 결과 폴더에 접근할 수 없습니다. 현재 저장 위치와 폴더 존재 여부를 확인하세요. (${folderPath}: ${error.message})`);
   }
 
   try {

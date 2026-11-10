@@ -2,7 +2,11 @@
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $appUrl = "http://127.0.0.1:4317/"
-$dataRoot = "\\Withusnas1\입찰관리"
+$nasRoot = "\\Withusnas1\입찰관리"
+$localRoot = "D:\입찰관리"
+$localAdminEmail = if ($env:WITHBID_LOCAL_ADMIN_EMAIL) { $env:WITHBID_LOCAL_ADMIN_EMAIL.Trim().ToLowerInvariant() } else { "csyoo22@gmail.com" }
+$dataRoot = $nasRoot
+$storageMode = "nas"
 $port = 4317
 $pidFile = Join-Path $env:LOCALAPPDATA "WITHBID-PPBM\server.pid"
 $logFile = Join-Path $env:LOCALAPPDATA "WITHBID-PPBM\launcher.log"
@@ -117,22 +121,65 @@ function Show-ErrorMessage([string]$message) {
   [System.Windows.MessageBox]::Show($message, "WITHBID-PPBM 실행 오류", "OK", "Error") | Out-Null
 }
 
-try {
-  Write-LauncherLog "실행 시작: $env:USERNAME"
-  try { Invoke-AutoUpdate } catch { Write-LauncherLog "자동 업데이트 확인 중 예상치 못한 오류: $($_.Exception.Message). 기존 버전으로 계속 실행합니다." }
+function Show-LocalModePrompt([string]$reason) {
+  Add-Type -AssemblyName PresentationFramework
+  $message = @"
+NAS 입찰관리 공유폴더에 연결할 수 없습니다.
 
-  if (-not (Test-NasByCommand $dataRoot)) {
-    throw "NAS 공유폴더에 접근할 수 없습니다.`n`n파일 탐색기 주소창에 아래 경로를 입력하여 NAS 로그인을 완료한 후 다시 실행하세요.`n`n\\Withusnas1\입찰관리`n`n진단 로그: $logFile"
-  }
+$reason
 
-  # NAS 암호는 앱에 보관하지 않습니다. 현재 Windows 사용자의 SMB 세션을 사용합니다.
-  $probe = Join-Path $dataRoot (".withbid-access-{0}.tmp" -f [guid]::NewGuid().ToString("N"))
+관리자 로컬 모드로 계속 실행하시겠습니까?
+
+저장 위치: D:\입찰관리
+허용 계정: $localAdminEmail (관리자)
+
+로컬 작업결과는 NAS로 자동 동기화되지 않습니다.
+사내 복귀 후 필요한 공고 폴더를 담당자가 확인하여 옮겨야 합니다.
+"@
+  $answer = [System.Windows.MessageBox]::Show($message, "WITHBID-PPBM 관리자 로컬 모드", "YesNo", "Warning")
+  return $answer -eq [System.Windows.MessageBoxResult]::Yes
+}
+
+function Test-WriteAccess([string]$rootPath) {
+  $probe = Join-Path $rootPath (".withbid-access-{0}.tmp" -f [guid]::NewGuid().ToString("N"))
   try {
     [System.IO.File]::WriteAllText($probe, "WITHBID-PPBM access check")
     Remove-Item -LiteralPath $probe -Force
+    return $true
   } catch {
+    Write-LauncherLog "쓰기 권한 확인 오류: $rootPath / $($_.Exception.Message)"
     if (Test-Path -LiteralPath $probe) { Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue }
-    throw "NAS 폴더는 열리지만 파일 쓰기 권한이 없습니다. 공공조달 담당자 계정의 NAS 권한을 확인하세요."
+    return $false
+  }
+}
+
+try {
+  Write-LauncherLog "실행 시작: $env:USERNAME"
+  try { Invoke-AutoUpdate } catch { Write-LauncherLog "자동 업데이트 확인 중 예상치 못한 오류: $($_.Exception.Message). 기존 버전으로 계속 실행합니다." }
+  $nasFailure = $null
+  if (-not (Test-NasByCommand $nasRoot)) {
+    $nasFailure = "파일 탐색기에서 $nasRoot 경로를 열 수 없거나 NAS 로그인이 되어 있지 않습니다."
+  } elseif (-not (Test-WriteAccess $nasRoot)) {
+    $nasFailure = "NAS 폴더는 열리지만 현재 Windows 사용자에게 파일 쓰기 권한이 없습니다."
+  }
+
+  if ($nasFailure) {
+    if (-not (Show-LocalModePrompt $nasFailure)) {
+      throw "$nasFailure`n`nNAS 로그인 후 다시 실행하세요.`n진단 로그: $logFile"
+    }
+    if (-not (Test-Path -LiteralPath "D:\")) {
+      throw "이 PC에는 D: 드라이브가 없어 관리자 로컬 모드를 시작할 수 없습니다."
+    }
+    New-Item -ItemType Directory -Path $localRoot -Force | Out-Null
+    if (-not (Test-WriteAccess $localRoot)) {
+      throw "관리자 로컬 저장폴더 $localRoot 에 파일을 쓸 수 없습니다. 드라이브 권한과 여유 공간을 확인하세요."
+    }
+    $dataRoot = $localRoot
+    $storageMode = "local_admin"
+    Write-LauncherLog "관리자 로컬 모드 동의 및 선택: $dataRoot / $localAdminEmail"
+  } else {
+    # NAS 암호는 앱에 보관하지 않습니다. 현재 Windows 사용자의 SMB 세션을 사용합니다.
+    Write-LauncherLog "NAS 공유 저장 모드 선택: $dataRoot"
   }
 
   $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -140,7 +187,7 @@ try {
   if ($listener) {
     try {
       $running = Invoke-RestMethod -TimeoutSec 2 "http://127.0.0.1:$port/api/app-info"
-      if ($running.app -ne "WITHBID-PPBM" -or $running.dataRoot -ne $dataRoot) { throw "잘못된 서버" }
+      if ($running.app -ne "WITHBID-PPBM" -or $running.dataRoot -ne $dataRoot -or $running.storageMode -ne $storageMode) { throw "잘못된 서버" }
     } catch {
       # v0.2.0 이전 WITHBID는 app-info가 없으므로 인증 설정 API로 식별한 뒤에만 교체합니다.
       try {
@@ -159,6 +206,10 @@ try {
     $bundledNode = Join-Path $projectRoot "runtime\node.exe"
     $node = if (Test-Path -LiteralPath $bundledNode) { $bundledNode } else { (Get-Command node.exe -ErrorAction Stop).Source }
     $env:DATA_ROOT = $dataRoot
+    $env:NAS_ROOT = $nasRoot
+    $env:STORAGE_MODE = $storageMode
+    $env:LOCAL_ADMIN_EMAIL = $localAdminEmail
+    $env:LOCAL_MODE_CONSENT_AT = if ($storageMode -eq "local_admin") { (Get-Date).ToString("o") } else { "" }
     $env:PORT = [string]$port
 
     $process = Start-Process -FilePath $node -ArgumentList "src/server.js" -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
@@ -173,7 +224,7 @@ try {
         if ($response.StatusCode -eq 200) { $ready = $true; break }
       } catch { }
     }
-    if (-not $ready) { throw "앱 서버가 제한 시간 안에 시작되지 않았습니다. NAS 연결과 앱 설치 상태를 확인하세요." }
+    if (-not $ready) { throw "앱 서버가 제한 시간 안에 시작되지 않았습니다. 저장폴더 연결과 앱 설치 상태를 확인하세요." }
   }
 
   Start-Process $appUrl

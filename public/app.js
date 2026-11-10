@@ -1,5 +1,26 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+let storageContext = { storageMode:"nas", localAdminMode:false, dataRoot:"" };
+
+function applyStorageContext(value = {}) {
+  storageContext = { ...storageContext, ...value };
+  const local = storageContext.localAdminMode || storageContext.storageMode === "local_admin";
+  const root = storageContext.dataRoot || (local ? "D:\\입찰관리" : "\\\\WITHUSNAS1\\입찰관리");
+  document.body.classList.toggle("local-admin-mode", local);
+  $("#storageModeBanner").hidden = !local;
+  $("#connection").textContent = local ? "관리자 로컬 저장" : "NAS 공유 저장";
+  $("#connection").classList.toggle("local-mode", local);
+  $("#storageModeMessage").textContent = `${root}에 저장 중입니다. 작업결과는 NAS로 자동 동기화되지 않습니다. API 키는 로컬 설정에 최초 1회 별도 등록해야 합니다.`;
+  $("#storageDescription").textContent = local
+    ? `NAS가 연결되지 않아 이 노트북의 ${root} 폴더에 저장합니다. 로컬 결과는 NAS로 자동 동기화되지 않습니다.`
+    : "공고 원문과 분석결과는 WITHUSNAS1의 입찰관리 공유폴더에 보관됩니다.";
+  $("#createNoticeButton").textContent = local ? "로컬에 공고 폴더 만들기" : "NAS에 공고 폴더 만들기";
+  $("#opalSaveButton").textContent = local ? "로컬에 분석 결과 저장" : "NAS에 분석 결과 저장";
+  $("#openaiPrivacyNote").textContent = local
+    ? "키는 이 Windows 사용자만 해독할 수 있도록 암호화하여 로컬 설정 폴더에 저장하며 화면·로그·GitHub에 표시하지 않습니다."
+    : "키는 NAS 설정 폴더에만 저장되며 화면·로그·GitHub에 표시되지 않습니다.";
+  $("#dataRoot").textContent = root;
+}
 
 function toast(message, error = false) {
   const element = $("#toast");
@@ -36,8 +57,7 @@ function noticeActions(notice) {
 async function refresh() {
   try {
     const [status, notices] = await Promise.all([api("/api/status"), api("/api/notices")]);
-    $("#connection").textContent = "로컬 연결됨";
-    $("#dataRoot").textContent = status.dataRoot;
+    applyStorageContext(status);
     $("#noticeCount").textContent = status.noticeCount;
     $("#priceCount").textContent = status.priceCount;
     $("#noticeList").innerHTML = notices.length ? notices.map((notice) => `
@@ -101,10 +121,12 @@ function activateApp(user) {
 async function initializeAuth() {
   document.body.classList.add("auth-pending");
   try {
-    const [config,session]=await Promise.all([api("/api/auth/config"),api("/api/auth/me")]);
+    const [appInfo,config,session]=await Promise.all([api("/api/app-info"),api("/api/auth/config"),api("/api/auth/me")]);
+    applyStorageContext(appInfo);
     if(session.authenticated)return activateApp(session.user);
     $("#authGate").hidden=false;
-    if(!config.configured){$("#authMessage").textContent="관리자가 Google OAuth 웹 클라이언트 ID를 최초 1회 등록해야 합니다.";$("#authBootstrapForm").hidden=false;return;}
+    if(config.localAdminMode)$("#authMessage").textContent=`NAS 미연결 관리자 로컬 모드입니다. ${config.requiredAdminEmail} 관리자 계정으로 로그인하세요.`;
+    if(!config.configured){$("#authMessage").textContent=config.localAdminMode?"관리자 로컬 모드의 Google OAuth 웹 클라이언트 ID를 최초 1회 등록해야 합니다.":"관리자가 Google OAuth 웹 클라이언트 ID를 최초 1회 등록해야 합니다.";$("#authBootstrapForm").hidden=false;return;}
     await loadGoogleIdentity();
     google.accounts.id.initialize({client_id:config.clientId,callback:handleGoogleCredential,auto_select:false,cancel_on_tap_outside:false});
     google.accounts.id.renderButton($("#googleSignIn"),{theme:"outline",size:"large",shape:"pill",text:"signin_with",locale:"ko",width:320});
@@ -113,7 +135,7 @@ async function initializeAuth() {
 
 async function loadUsers(){try{const users=await api("/api/admin/users");$("#userList").innerHTML=users.map((user)=>`<div class="user-row"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span><span class="role">${user.role}</span><button class="danger" type="button" data-delete-user="${encodeURIComponent(user.email)}" ${user.email===signedInUser?.email?"disabled":""}>삭제</button></div>`).join("");}catch(error){toast(error.message,true);}}
 
-const progressStages=["공고 조회","첨부 다운로드","압축파일 해제","한컴문서 변환","Excel 문서 변환","문서 구조 판정","AI 의미 분석","원문 근거 검증","단가표 조회","외부 가격 검색","견적 감사","참가 판단","결과 저장"];
+const progressStages=["공고 조회","첨부 다운로드","압축파일 해제","한컴문서 변환","Excel 문서 변환","문서 구조 판정","AI 의미 분석","요구사양 정밀화","원문 근거 검증","단가표 조회","외부 가격 검색","견적 감사","참가 판단","결과 저장"];
 function renderProgress(progress){
   const panel=$("#analysisProgress"); panel.hidden=false; panel.classList.toggle("failed",progress.status==="failed");
   const percent=Math.max(0,Math.min(100,Number(progress.percent)||0));
@@ -147,7 +169,7 @@ $("#noticeList").addEventListener("click", async (event) => {
       headers:{ "Content-Type":"application/json" },
       body:JSON.stringify({ noticeId:button.dataset.openNoticeFolder }),
     });
-    toast("NAS 결과 폴더를 열었습니다.");
+    toast(`${storageContext.localAdminMode ? "로컬" : "NAS"} 결과 폴더를 열었습니다.`);
   } catch (error) {
     toast(error.message, true);
   } finally {
@@ -159,7 +181,7 @@ $("#noticeList").addEventListener("click", async (event) => {
 $("#noticeList").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-delete-notice]");
   if (!button) return;
-  if (!confirm("이 공고를 진행 목록에서 삭제할까요?\n\nNAS 작업 폴더는 복구할 수 있도록 '종료\\_삭제됨' 폴더로 이동합니다.")) return;
+  if (!confirm(`이 공고를 진행 목록에서 삭제할까요?\n\n${storageContext.localAdminMode ? "로컬" : "NAS"} 작업 폴더는 복구할 수 있도록 '종료\\_삭제됨' 폴더로 이동합니다.`)) return;
   button.disabled = true;
   const label=button.querySelector("span"); const originalLabel=label.textContent; label.textContent="삭제 중…";
   try {
@@ -198,7 +220,7 @@ $("#opalForm").addEventListener("submit", async (event) => {
   try {
     const result = await api("/api/opal/bundle", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(formObject(event.currentTarget)) });
     $("#opalBundle").value = result.bundle;
-    toast("Opal 입력문을 만들고 D드라이브에 저장했습니다.");
+    toast(`Opal 입력문을 만들고 ${storageContext.localAdminMode ? "D드라이브" : "NAS"}에 저장했습니다.`);
   } catch (error) { toast(error.message, true); }
 });
 
