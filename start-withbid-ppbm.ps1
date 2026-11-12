@@ -10,9 +10,7 @@ $storageMode = "nas"
 $port = 4317
 $pidFile = Join-Path $env:LOCALAPPDATA "WITHBID-PPBM\server.pid"
 $logFile = Join-Path $env:LOCALAPPDATA "WITHBID-PPBM\launcher.log"
-$updateCheckFile = Join-Path $env:LOCALAPPDATA "WITHBID-PPBM\update-check.json"
 $updateRepo = "Choongsik-Yoo/WITHBID-PPBM"
-$updateCheckIntervalMinutes = 10
 
 function Write-LauncherLog([string]$message) {
   New-Item -ItemType Directory -Path (Split-Path -Parent $logFile) -Force | Out-Null
@@ -44,27 +42,12 @@ function Invoke-AutoUpdate {
   $localVersion = Get-LocalAppVersion
   if (-not $localVersion) { Write-LauncherLog "자동 업데이트: 로컬 버전을 확인하지 못해 건너뜁니다."; return }
 
-  $lastCheck = $null
-  if (Test-Path -LiteralPath $updateCheckFile) {
-    try { $lastCheck = Get-Content -Raw -Encoding UTF8 -LiteralPath $updateCheckFile | ConvertFrom-Json } catch { $lastCheck = $null }
-  }
-  if ($lastCheck -and $lastCheck.checkedAt) {
-    $elapsed = (Get-Date) - [DateTime]$lastCheck.checkedAt
-    if ($elapsed.TotalMinutes -lt $updateCheckIntervalMinutes) {
-      Write-LauncherLog "자동 업데이트: 최근 $([int]$elapsed.TotalMinutes)분 전에 확인했으므로 건너뜁니다."
-      return
-    }
-  }
-
   try {
-    $release = Invoke-RestMethod -TimeoutSec 5 -Headers @{ "User-Agent" = "WITHBID-PPBM-Launcher" } "https://api.github.com/repos/$updateRepo/releases/latest"
+    $release = Invoke-RestMethod -TimeoutSec 10 -Headers @{ "User-Agent" = "WITHBID-PPBM-Launcher" } "https://api.github.com/repos/$updateRepo/releases/latest"
   } catch {
     Write-LauncherLog "자동 업데이트: GitHub 릴리스 확인 실패 ($($_.Exception.Message)). 기존 버전으로 계속 실행합니다."
     return
   }
-
-  New-Item -ItemType Directory -Path (Split-Path -Parent $updateCheckFile) -Force | Out-Null
-  Set-Content -LiteralPath $updateCheckFile -Value (@{ checkedAt = (Get-Date).ToString("o") } | ConvertTo-Json) -Encoding UTF8
 
   $remoteVersion = $release.tag_name -replace '^v', ''
   if (-not (Test-RemoteNewer $remoteVersion $localVersion)) {
@@ -92,7 +75,7 @@ function Invoke-AutoUpdate {
     if (-not (Test-AssetSha256 $installerPath $installerAsset.digest)) { throw "설치 스크립트 무결성 검증에 실패했습니다." }
 
     Write-LauncherLog "자동 업데이트: 다운로드·검증 완료. 설치를 실행합니다."
-    $installProcess = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", $installerPath) -WorkingDirectory $stagingRoot -Wait -PassThru
+    $installProcess = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", $installerPath, "-Silent") -WorkingDirectory $stagingRoot -Wait -PassThru
     if ($installProcess.ExitCode -ne 0) { throw "설치 스크립트가 종료 코드 $($installProcess.ExitCode)로 실패했습니다." }
     Write-LauncherLog "자동 업데이트: v$remoteVersion 설치를 완료했습니다."
   } catch {
@@ -188,6 +171,13 @@ try {
     try {
       $running = Invoke-RestMethod -TimeoutSec 2 "http://127.0.0.1:$port/api/app-info"
       if ($running.app -ne "WITHBID-PPBM" -or $running.dataRoot -ne $dataRoot -or $running.storageMode -ne $storageMode) { throw "잘못된 서버" }
+      $installedVersion = Get-LocalAppVersion
+      if (-not $running.version -or -not $installedVersion -or $running.version -ne $installedVersion) {
+        Write-LauncherLog "실행 중 서버 버전(v$($running.version))과 설치 버전(v$installedVersion)이 달라 서버를 다시 시작합니다."
+        Stop-Process -Id $listener.OwningProcess -Force -ErrorAction Stop
+        Start-Sleep -Milliseconds 500
+        $needsStart = $true
+      }
     } catch {
       # v0.2.0 이전 WITHBID는 app-info가 없으므로 인증 설정 API로 식별한 뒤에만 교체합니다.
       try {

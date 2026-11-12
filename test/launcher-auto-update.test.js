@@ -28,8 +28,17 @@ test("자동 업데이트 확인·설치가 실패해도 앱 실행 자체는 �
   assert.match(script, /기존 버전으로 계속 실행합니다/);
 });
 
-test("반복 실행 시 매번 GitHub를 호출하지 않도록 확인 주기를 둔다", async () => {
+test("실행할 때마다 GitHub 최신 릴리스를 확인하며 이전 확인 캐시로 건너뛰지 않는다", async () => {
   const script = await fs.readFile(path.join(projectRoot, "start-withbid-ppbm.ps1"), "utf8");
-  assert.match(script, /updateCheckIntervalMinutes/);
-  assert.match(script, /update-check\.json/);
+  assert.doesNotMatch(script, /updateCheckIntervalMinutes/);
+  assert.doesNotMatch(script, /update-check\.json/);
+  assert.doesNotMatch(script, /최근 .*분 전에 확인했으므로 건너뜁니다/);
+});
+
+test("업데이트 후 실행 중인 이전 버전 서버를 종료하고 새 서버를 시작한다", async () => {
+  const script = await fs.readFile(path.join(projectRoot, "start-withbid-ppbm.ps1"), "utf8");
+  assert.match(script, /\$running\.version -ne \$installedVersion/);
+  assert.match(script, /서버 버전.*설치 버전.*서버를 다시 시작합니다/);
+  assert.match(script, /Stop-Process -Id \$listener\.OwningProcess/);
+  assert.match(script, /\$installerPath, "-Silent"/);
 });

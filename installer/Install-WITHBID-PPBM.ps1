@@ -1,6 +1,7 @@
 ﻿$ErrorActionPreference = "Stop"
 
 $payload = Join-Path $PSScriptRoot "WITHBID-PPBM-app.zip"
+$silent = $args -contains "-Silent"
 $installRoot = Join-Path $env:LOCALAPPDATA "WITHBID-PPBM"
 $desktop = [Environment]::GetFolderPath("Desktop")
 $startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
@@ -35,7 +36,7 @@ function New-AppShortcut([string]$shortcutPath) {
 
 try {
   if (-not (Test-Path -LiteralPath $payload)) { throw "설치 패키지 WITHBID-PPBM-app.zip을 찾을 수 없습니다." }
-  Show-InstallProgress "앱 파일을 설치하고 있습니다. 잠시만 기다려 주세요."
+  if (-not $silent) { Show-InstallProgress "앱 파일을 설치하고 있습니다. 잠시만 기다려 주세요." }
   $pidFile = Join-Path $installRoot "server.pid"
   if (Test-Path -LiteralPath $pidFile) {
     $serverPid = [int](Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue)
@@ -47,13 +48,19 @@ try {
   Copy-Item -Path (Join-Path $stagingRoot "*") -Destination $installRoot -Recurse -Force
   New-AppShortcut (Join-Path $desktop "WITHBID-PPBM.lnk")
   New-AppShortcut (Join-Path $startMenu "WITHBID-PPBM.lnk")
-  $progressForm.Close()
-  Add-Type -AssemblyName PresentationFramework
-  [System.Windows.MessageBox]::Show("WITHBID-PPBM 설치가 완료되었습니다.`n`n바탕화면의 WITHBID-PPBM 아이콘으로 실행하세요.", "WITHBID-PPBM 설치 완료", "OK", "Information") | Out-Null
+  if ($progressForm) { $progressForm.Close() }
+  if (-not $silent) {
+    Add-Type -AssemblyName PresentationFramework
+    [System.Windows.MessageBox]::Show("WITHBID-PPBM 설치가 완료되었습니다.`n`n바탕화면의 WITHBID-PPBM 아이콘으로 실행하세요.", "WITHBID-PPBM 설치 완료", "OK", "Information") | Out-Null
+  }
 } catch {
   if ($progressForm) { $progressForm.Close() }
-  Add-Type -AssemblyName PresentationFramework
-  [System.Windows.MessageBox]::Show($_.Exception.Message, "WITHBID-PPBM 설치 오류", "OK", "Error") | Out-Null
+  if ($silent) {
+    Write-Error $_.Exception.Message
+  } else {
+    Add-Type -AssemblyName PresentationFramework
+    [System.Windows.MessageBox]::Show($_.Exception.Message, "WITHBID-PPBM 설치 오류", "OK", "Error") | Out-Null
+  }
   exit 1
 } finally {
   if (Test-Path -LiteralPath $stagingRoot) { Remove-Item -LiteralPath $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue }

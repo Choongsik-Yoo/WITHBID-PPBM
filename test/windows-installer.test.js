@@ -22,3 +22,10 @@ test("Windows 패키지 빌드는 GUI 온라인 설치 EXE를 생성한다",asyn
   assert.match(script,/function Get-Sha256Hex/);
   assert.match(script,/Security\.Cryptography\.SHA256/);
 });
+
+test("자동 업데이트 설치는 완료창 없이 조용히 실행할 수 있다",async()=>{
+  const script=await fs.readFile(path.join(projectRoot,"installer","Install-WITHBID-PPBM.ps1"),"utf8");
+  assert.match(script,/\$args -contains "-Silent"/);
+  assert.match(script,/if \(-not \$silent\) \{ Show-InstallProgress/);
+  assert.match(script,/if \(-not \$silent\) \{/);
+});
