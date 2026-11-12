@@ -177,7 +177,7 @@ const server = http.createServer(async (request, response) => {
     const publicAuthPaths = new Set(["/api/app-info", "/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
 
     if (request.method === "GET" && url.pathname === "/api/app-info") {
-      return json(response, 200, { app: "WITHBID-PPBM", version: "0.8.1", dataRoot: config.dataRoot, storageMode:config.storageMode, localAdminMode:config.localAdminMode, nasRoot:config.nasRoot });
+      return json(response, 200, { app: "WITHBID-PPBM", version: "0.9.0", versionDate:"2026-11-12", dataRoot: config.dataRoot, storageMode:config.storageMode, localAdminMode:config.localAdminMode, nasRoot:config.nasRoot });
     }
 
     if (request.method === "GET" && url.pathname === "/api/auth/config") {
@@ -386,7 +386,7 @@ const server = http.createServer(async (request, response) => {
           currentCandidates=companyMatches.map(item=>({requirementId:requirement.id,requirement,model:item.model,specification:item.specification,unitPrice:item.unitPrice,matchScore:item.matchScore,matchType:item.matchType,matchedKeywords:item.matchedKeywords,source:"company_price_list",sourceUrl:null,stock:item.stock,checkedAt:state.priceList.importedAt,compatibilityStatus:item.compatibilityStatus,compatibilityNotes:item.compatibilityNotes,status:`자사 단가표 · ${item.matchType==="exact"?"정확 모델":"핵심사양 후보"} · 호환성 ${item.compatibilityStatus==="compatible"?"확인":"검토 필요"}`}));
         }else{
           updateProgress(activeJobId,percent,requirement.productSearchMode==="complete_product"?"완제품 모델 검색":"외부 가격 검색",requirement.productSearchMode==="complete_product"
-            ? `${group}: 컴퓨존·가이드컴 → 가격비교·쇼핑몰 → 제조사 공식 페이지 순으로 완제품을 확인합니다.`
+            ? `${group}: 컴퓨존·가이드컴 → 쿠팡·네이버·G마켓·11번가·다나와·에누리 → 제조사 순으로 완제품을 확인합니다.`
             : `${group} · ${requirement.category}: 컴퓨존 → 가이드컴을 확인하고, 없으면 다나와까지 검색합니다.`);
           const found=await findExternalPrices({settings,requirements:[{id:requirement.id,category:requirement.category,model:requirement.searchProfile?.exactModel||requirement.condition,condition:requirement.condition,searchKeywords:requirement.searchKeywords,searchProfile:requirement.searchProfile,constraints:requirement.constraints,quantity:requirement.quantity,specificationGroup:group,unitQuantity:requirement.unitQuantity,systemQuantity:requirement.systemQuantity,priceRole:requirement.priceRole,productSearchMode:requirement.productSearchMode,completeProductType:requirement.completeProductType,componentRequirementIds:requirement.componentRequirementIds,derivedFromCompatibility:requirement.derivedFromCompatibility,compatibilityContext}]});
           externalPrices.push(...found);
@@ -403,7 +403,7 @@ const server = http.createServer(async (request, response) => {
         };
         selectedByGroup.set(group,[...selectedParts,compatibilitySelection]);
       }
-      await writeJson(path.join(base,"05_가격근거","가격조사결과.json"),{researchOrder:["노트북·서버 완제품 우선",...COMPONENT_RESEARCH_ORDER],sourcePriority:["company_price_list","컴퓨존","가이드컴","다나와","주요 온라인 쇼핑몰","제조사 공식 페이지"],companyPriceList:priceCandidates.filter(item=>item.source==="company_price_list"),externalPrices,completeProductStrategy:extraction.completeProductStrategy||[],compatibilityContexts:Object.fromEntries([...selectedByGroup].map(([group,items])=>[group,buildCompatibilityContext(items,group)])),checkedAt:new Date().toISOString()});
+      await writeJson(path.join(base,"05_가격근거","가격조사결과.json"),{researchOrder:["노트북·서버 완제품 우선",...COMPONENT_RESEARCH_ORDER],sourcePriority:["company_price_list","컴퓨존","가이드컴","쿠팡","네이버쇼핑","G마켓","11번가","다나와","에누리","기타 온라인 쇼핑몰","제조사 공식 페이지"],companyPriceList:priceCandidates.filter(item=>item.source==="company_price_list"),externalPrices,completeProductStrategy:extraction.completeProductStrategy||[],compatibilityContexts:Object.fromEntries([...selectedByGroup].map(([group,items])=>[group,buildCompatibilityContext(items,group)])),checkedAt:new Date().toISOString()});
       updateProgress(activeJobId,83,"견적 감사","부품 누락·중복·수량·완제품 이중계산 여부를 검사하고 있습니다.");
       const quotePlan=buildVerifiedQuotePlan(extraction,priceCandidates);
       await writeJson(path.join(base,"04_구조화데이터","검증된_견적계획.json"),quotePlan);

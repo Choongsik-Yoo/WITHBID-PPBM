@@ -28,9 +28,25 @@ test("완제품은 판매몰을 거쳐 제조사 공식 모델까지 찾고 가�
   const result=await findExternalPrices({settings:{apiKey:"secret"},requirements:[{id:"SERVER",category:"서버 완제품",model:"Xeon 6960P RTX PRO 6000 64GB 1TB",condition:"Xeon 6960P RTX PRO 6000 64GB 1TB",productSearchMode:"complete_product",completeProductType:"server",searchProfile:{requiredKeywords:["XEON","6960P","RTXPRO","6000","64GB","1TB"]},compatibilityContext:{}}],fetchImpl});
   assert.equal(requests.length,3);
   assert.ok(requests[1].tools[0].filters.allowed_domains.includes("coupang.com"));
+  assert.ok(requests[1].tools[0].filters.allowed_domains.includes("naver.com"));
+  assert.ok(requests[1].tools[0].filters.allowed_domains.includes("enuri.com"));
   assert.ok(requests[2].instructions.includes("단일 완제품 모델"));
   assert.equal(result[0].matchedModel,"Dell PowerEdge R760xa");
   assert.equal(result[0].unitPrice,null);
+});
+
+test("완제품은 네이버쇼핑과 에누리의 직접 상품 상세 링크도 가격 후보로 사용한다",async()=>{
+  const marketplace=[
+    {category:"노트북 완제품",requestedModel:"Ryzen 9 8945HX RTX 5070 Ti 32GB 1TB",matchedModel:"ASUS ROG Strix G16",specification:"Ryzen 9 8945HX, RTX 5070 Ti Laptop 12GB, RAM 32GB, SSD 1TB",unitPrice:3290000,sourceName:"네이버쇼핑",sourceUrl:"https://smartstore.naver.com/asus/products/1234567890",checkedAt:"2026-11-12",confidence:"high",status:"판매중",compatibilityStatus:"compatible",compatibilityNotes:[]},
+    {category:"노트북 완제품",requestedModel:"Ryzen 9 8945HX RTX 5070 Ti 32GB 1TB",matchedModel:"ASUS ROG Strix G16",specification:"Ryzen 9 8945HX, RTX 5070 Ti Laptop 12GB, RAM 32GB, SSD 1TB",unitPrice:3350000,sourceName:"에누리",sourceUrl:"https://price.enuri.com/catalog/144251210",checkedAt:"2026-11-12",confidence:"high",status:"가격비교 판매중",compatibilityStatus:"compatible",compatibilityNotes:[]},
+  ];
+  const requests=[];
+  const fetchImpl=async(url,options)=>{const request=JSON.parse(options.body);requests.push(request);const domains=request.tools[0].filters.allowed_domains;return{ok:true,json:async()=>({output_text:JSON.stringify({products:domains.includes("naver.com")?marketplace:[]})})}};
+  const result=await findExternalPrices({settings:{apiKey:"secret"},requirements:[{id:"LAPTOP",category:"노트북 완제품",model:"Ryzen 9 8945HX RTX 5070 Ti 32GB 1TB",condition:"Ryzen 9 8945HX RTX 5070 Ti 32GB 1TB",productSearchMode:"complete_product",completeProductType:"laptop",searchProfile:{requiredKeywords:["RYZEN9","8945HX","RTX5070","32GB","1TB"]},compatibilityContext:{}}],fetchImpl});
+  assert.equal(requests.length,2);
+  assert.deepEqual(result.map((item)=>item.sourceName),["네이버쇼핑","에누리"]);
+  assert.match(result[0].sourceUrl,/smartstore\.naver\.com\/asus\/products\/1234567890/);
+  assert.match(result[1].sourceUrl,/price\.enuri\.com\/catalog\/144251210/);
 });
 
 test("문장형 규격서는 원문 블록 ID와 수량 근거를 요구한다",async()=>{

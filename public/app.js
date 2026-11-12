@@ -2,6 +2,14 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 let storageContext = { storageMode:"nas", localAdminMode:false, dataRoot:"" };
 
+function applyAppInfo(value = {}) {
+  const date = String(value.versionDate || "").replace(/-/g, ".");
+  const label = [value.version ? `v${value.version}` : null, date || null].filter(Boolean).join(" · ");
+  $("#appVersion").textContent = label || "버전 미확인";
+  $("#appVersion").hidden = !label;
+  $("#appVersion").title = label ? `WITHBID-PPBM ${label}` : "";
+}
+
 function applyStorageContext(value = {}) {
   storageContext = { ...storageContext, ...value };
   const local = storageContext.localAdminMode || storageContext.storageMode === "local_admin";
@@ -122,6 +130,7 @@ async function initializeAuth() {
   document.body.classList.add("auth-pending");
   try {
     const [appInfo,config,session]=await Promise.all([api("/api/app-info"),api("/api/auth/config"),api("/api/auth/me")]);
+    applyAppInfo(appInfo);
     applyStorageContext(appInfo);
     if(session.authenticated)return activateApp(session.user);
     $("#authGate").hidden=false;

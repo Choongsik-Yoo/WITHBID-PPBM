@@ -120,7 +120,7 @@ export function buildExternalSearches(query) {
 }
 
 export function priceSourcePriority(source) {
-  return ({ company_price_list:0, "컴퓨존":1, "가이드컴":2, "다나와":3, "쿠팡":4, "11번가":5, "G마켓":6, "옥션":7, "SSG":8, "롯데ON":9, "삼성전자":10, "LG전자":10, "HP":10, "Dell":10, "Lenovo":10, "ASUS":10, "HPE":10, "제조사":11 })[source] ?? 20;
+  return ({ company_price_list:0, "컴퓨존":1, "가이드컴":2, "쿠팡":3, "네이버쇼핑":4, "G마켓":5, "11번가":6, "다나와":7, "에누리":8, "옥션":9, "SSG":10, "롯데ON":11, "삼성전자":12, "LG전자":12, "HP":12, "Dell":12, "Lenovo":12, "ASUS":12, "HPE":12, "제조사":13 })[source] ?? 20;
 }
 
 export function coreModelKeywords(value) {

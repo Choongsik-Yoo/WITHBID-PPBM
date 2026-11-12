@@ -96,7 +96,7 @@ const externalPriceSchema={
   value:{type:"object",additionalProperties:false,required:["products"],properties:{
     products:{type:"array",items:{type:"object",additionalProperties:false,
       required:["category","requestedModel","matchedModel","specification","unitPrice","sourceName","sourceUrl","checkedAt","confidence","status","compatibilityStatus","compatibilityNotes"],
-      properties:{category:{type:"string"},requestedModel:{type:"string"},matchedModel:{type:["string","null"]},specification:{type:["string","null"]},unitPrice:{type:["number","null"]},sourceName:{type:["string","null"],enum:["컴퓨존","가이드컴","다나와","쿠팡","11번가","G마켓","옥션","SSG","롯데ON","삼성전자","LG전자","HP","Dell","Lenovo","ASUS","HPE","제조사",null]},sourceUrl:{type:["string","null"]},checkedAt:{type:"string"},confidence:{type:"string",enum:["high","medium","low"]},status:{type:"string"},compatibilityStatus:{type:"string",enum:["compatible","review","incompatible"]},compatibilityNotes:{type:"array",items:{type:"string"}}}
+      properties:{category:{type:"string"},requestedModel:{type:"string"},matchedModel:{type:["string","null"]},specification:{type:["string","null"]},unitPrice:{type:["number","null"]},sourceName:{type:["string","null"],enum:["컴퓨존","가이드컴","다나와","에누리","쿠팡","네이버쇼핑","11번가","G마켓","옥션","SSG","롯데ON","삼성전자","LG전자","HP","Dell","Lenovo","ASUS","HPE","제조사",null]},sourceUrl:{type:["string","null"]},checkedAt:{type:"string"},confidence:{type:"string",enum:["high","medium","low"]},status:{type:"string"},compatibilityStatus:{type:"string",enum:["compatible","review","incompatible"]},compatibilityNotes:{type:"array",items:{type:"string"}}}
     }}
   }}
 };
@@ -112,6 +112,7 @@ POWER 품목에 정격 출력(W)이 원문에 명시되지 않았으면, 구성�
 
 const completeProductPriceInstructions=`현재 품목은 부품 조립 견적이 아니라 노트북 또는 서버 완제품 한 대다. 서로 다른 판매 모델의 사양이나 가격을 조합하지 말고, 단일 완제품 모델의 제조사 모델명·구성 SKU로 모든 필수 조건을 검증한다.
 노트북은 CPU, Laptop GPU와 VRAM, RAM, 저장장치, 화면 크기·해상도·주사율, 배터리, 무게, 운영체제, 전원 어댑터와 보증 조건을 상품 상세나 제조사 사양표에서 대조한다. 서버는 제조사 모델·구성 SKU 하나에 CPU, GPU, RAM, 저장장치, 섀시, 이중화 전원과 보증이 실제 포함되는지 대조한다.
+완제품 판매 후보는 컴퓨존·가이드컴뿐 아니라 쿠팡, 네이버쇼핑, G마켓, 11번가, 다나와, 에누리, 옥션, SSG, 롯데ON 등 현재 검색 가능한 국내 판매·가격비교 사이트를 폭넓게 확인한다. 네이버는 검색결과가 아니라 쇼핑 카탈로그, 스마트스토어 또는 브랜드스토어의 개별 상품 페이지를 사용한다. 에누리는 검색 목록이 아니라 modelno 또는 catalog 번호가 있는 개별 상품 상세 페이지를 사용한다.
 필수 조건을 모두 확인한 단일 완제품만 compatibilityStatus=compatible로 기록한다. 일부 조건이 상품 페이지에서 확인되지 않으면 review로 기록하고 compatibilityNotes에 미확인 조건을 구체적으로 적는다. 조건에 어긋나면 incompatible로 기록한다.
 가격이 공개된 판매 상품은 현재 1대 판매가를 unitPrice에 기록한다. 제조사 공식 모델·구성은 확인되지만 가격이 공개되지 않은 경우 unitPrice는 null로 두고, 직접 제품 상세 URL과 status에 '제조사 구성견적 필요'를 기록한다.`;
 
@@ -124,11 +125,16 @@ function isDirectProductUrl(value) {
     if(host==="www.guidecom.co.kr"||host==="guidecom.co.kr")return !/\/search/i.test(url.pathname);
     if(host==="prod.danawa.com")return /^\/info\//i.test(url.pathname)&&Boolean(url.searchParams.get("pcode"));
     if(host.endsWith("coupang.com"))return /^\/vp\/products\//i.test(url.pathname);
+    if(host==="search.shopping.naver.com")return /^\/catalog\/\d+/i.test(url.pathname);
+    if(host.endsWith("smartstore.naver.com")||host.endsWith("brand.naver.com"))return /\/products\/\d+/i.test(url.pathname);
+    if(host.endsWith("shopping.naver.com"))return /\/products\/\d+|\/catalog\/\d+/i.test(url.pathname)&&!/search/i.test(url.href);
     if(host.endsWith("11st.co.kr"))return /^\/products\//i.test(url.pathname);
     if(host==="item.gmarket.co.kr")return /\/item/i.test(url.pathname)&&Boolean(url.searchParams.get("goodscode"));
     if(host==="itempage3.auction.co.kr")return /detailview/i.test(url.pathname)&&Boolean(url.searchParams.get("itemno"));
     if(host.endsWith("ssg.com"))return /\/item\//i.test(url.pathname)||Boolean(url.searchParams.get("itemId"));
     if(host.endsWith("lotteon.com"))return /\/p\/product\//i.test(url.pathname);
+    if(host==="price.enuri.com")return /^\/catalog\/\d+/i.test(url.pathname);
+    if(host.endsWith("enuri.com"))return (/\/(?:detail|vip)\.jsp/i.test(url.pathname)&&Boolean(url.searchParams.get("modelno")))||/^\/m\/vip\.jsp/i.test(url.pathname)&&Boolean(url.searchParams.get("modelno"));
     if(host.endsWith("samsung.com"))return /\/sec\//i.test(url.pathname)&&!/search/i.test(url.href);
     if(host.endsWith("lge.co.kr"))return url.pathname.split("/").filter(Boolean).length>=1&&!/search/i.test(url.href);
     if(host.endsWith("hp.com"))return /\/shop\//i.test(url.pathname)&&!/search/i.test(url.href);
@@ -178,8 +184,8 @@ export async function findExternalPrices({settings,requirements,fetchImpl=fetch}
     if(primary.length)return primary;
     if(!completeProduct)return (await searchSites(["danawa.com"],"앞 단계에 판매 가능한 후보가 없었다. 다나와 가격비교만 검색한다."))
       .filter(item=>item.sourceName==="다나와");
-    const marketplaceNames=new Set(["다나와","쿠팡","11번가","G마켓","옥션","SSG","롯데ON"]);
-    const marketplace=await searchSites(["danawa.com","coupang.com","11st.co.kr","gmarket.co.kr","auction.co.kr","ssg.com","lotteon.com"],"앞 단계에 적합한 완제품이 없었다. 국내 가격비교·온라인 쇼핑몰에서 단일 완제품 모델을 검색한다.");
+    const marketplaceNames=new Set(["다나와","에누리","쿠팡","네이버쇼핑","11번가","G마켓","옥션","SSG","롯데ON"]);
+    const marketplace=await searchSites(["danawa.com","enuri.com","coupang.com","naver.com","11st.co.kr","gmarket.co.kr","auction.co.kr","ssg.com","lotteon.com"],"앞 단계에 적합한 완제품이 없었다. 쿠팡·네이버쇼핑·G마켓·11번가·다나와·에누리를 포함한 국내 가격비교·온라인 쇼핑몰에서 단일 완제품 모델을 검색한다.");
     const marketplaceProducts=marketplace.filter(item=>marketplaceNames.has(item.sourceName));
     if(marketplaceProducts.length)return marketplaceProducts;
     const manufacturerNames=new Set(["삼성전자","LG전자","HP","Dell","Lenovo","ASUS","HPE","제조사"]);

@@ -12,7 +12,7 @@ button,input,select,textarea { font:inherit; }
 .brand-mark { width:38px; height:38px; display:grid; place-items:center; border-radius:12px; background:var(--green); color:var(--lime); font-weight:900; }
 .brand strong,.brand small { display:block; }.brand small { color:var(--muted); font-size:11px; letter-spacing:.07em; }
 .pill { padding:8px 12px; border-radius:99px; color:var(--green); background:#e6eee9; font-size:13px; }
-.user-area{display:flex;align-items:center;gap:8px}.text-button{border:0;background:transparent;color:var(--muted);cursor:pointer;text-decoration:underline;font-size:12px}
+.user-area{display:flex;align-items:center;gap:8px}.version-badge{display:inline-flex;align-items:center;min-height:31px;padding:7px 10px;border:1px solid #cbd8d0;border-radius:99px;background:#fffdf8;color:var(--muted);font-size:11px;font-weight:750;letter-spacing:.02em;white-space:nowrap}.version-badge[hidden]{display:none}.text-button{border:0;background:transparent;color:var(--muted);cursor:pointer;text-decoration:underline;font-size:12px}
 main { max-width:1180px; margin:auto; padding:0 24px 60px; }
 .storage-mode-banner{display:flex;align-items:center;gap:12px;margin-top:20px;padding:14px 18px;border:1px solid #e2a18b;border-radius:14px;background:#fff0e9;color:#8d3527;box-shadow:0 8px 24px #8d352715}.storage-mode-banner[hidden]{display:none}.storage-mode-banner strong{white-space:nowrap}.storage-mode-banner span{line-height:1.45}
 body.local-admin-mode .summary-card{background:#8d3527}.pill.local-mode{background:#fff0e9;color:#9b3329;font-weight:800}
