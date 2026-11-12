@@ -52,6 +52,7 @@ export function rankCompanyPrices(items, query) {
   const categoryKey = (value) => {
     const text = String(value || "").toUpperCase();
     const mappings = [
+      ["LAPTOP", /노트북|랩톱|LAPTOP|NOTEBOOK|MOBILE\s+WORKSTATION/], ["SERVER", /서버|SERVER/],
       ["COOLER", /쿨러|COOLER|냉각/], ["MAINBOARD", /메인보드|마더보드|MAINBOARD|MOTHERBOARD/],
       ["CPU", /\bCPU\b|프로세서/], ["SSD", /SSD|NVME|M\.2/], ["HDD", /HDD|하드디스크/],
       ["POWER", /파워|POWER|PSU|전원공급/], ["GPU", /그래픽|GPU|VGA|RTX|RADEON/],
@@ -119,7 +120,7 @@ export function buildExternalSearches(query) {
 }
 
 export function priceSourcePriority(source) {
-  return ({ company_price_list:0, "컴퓨존":1, "가이드컴":2, "다나와":3 })[source] ?? 9;
+  return ({ company_price_list:0, "컴퓨존":1, "가이드컴":2, "다나와":3, "쿠팡":4, "11번가":5, "G마켓":6, "옥션":7, "SSG":8, "롯데ON":9, "삼성전자":10, "LG전자":10, "HP":10, "Dell":10, "Lenovo":10, "ASUS":10, "HPE":10, "제조사":11 })[source] ?? 20;
 }
 
 export function coreModelKeywords(value) {
@@ -130,10 +131,17 @@ export function coreModelKeywords(value) {
   for(const match of text.matchAll(/RTX\s*PRO\s*(\d{4,5})/g)){add("RTXPRO");add(match[1]);}
   for(const match of text.matchAll(/\bXEON(?:\s+(?:PLATINUM|GOLD|SILVER|BRONZE))?\s+(\d{4,5}[A-Z]?)\b/g)){add("XEON");add(match[1]);}
   for(const match of text.matchAll(/\bEPYC(?:\s+\w+){0,2}\s+(\d{4,5}[A-Z]*)\b/g)){add("EPYC");add(match[1]);}
+  for(const match of text.matchAll(/\bRYZEN\s*([3579])\s+(\d{4,5}[A-Z]{0,3})\b/g)){add(`RYZEN${match[1]}`);add(match[2]);}
   for(const match of text.matchAll(/\b(D\d)\b/g))add(match[1]);
   for(const match of text.matchAll(/\b(\d{1,2})\s*GB\b/g))add(`${match[1]}GB`);
   for(const match of text.matchAll(/\b(\d+(?:\.\d+)?)\s*TB\b/g))add(`${match[1]}TB`);
   for(const match of text.matchAll(/\b(\d{3,4})\s*W\b/g))add(`${match[1]}W`);
+  for(const match of text.matchAll(/\b(\d{2,3})\s*WH\b/g))add(`${match[1]}WH`);
+  for(const match of text.matchAll(/\b(\d{2,3})\s*HZ\b/g))add(`${match[1]}HZ`);
+  for(const match of text.matchAll(/\b(\d{3,4})\s*[X×]\s*(\d{3,4})\b/g))add(`${match[1]}X${match[2]}`);
+  for(const match of text.matchAll(/\b(\d{2}(?:\.\d)?)\s*(?:인치|INCH|\")/g))add(`${match[1]}INCH`);
+  for(const match of text.matchAll(/\b(\d(?:\.\d+)?)\s*KG\b/g))add(`${match[1]}KG`);
+  const windows=text.match(/WINDOWS\s*(10|11)(?:\s*(PRO|HOME))?/);if(windows){add(`WINDOWS${windows[1]}`);if(windows[2])add(windows[2]);}
   if(/80\s*PLUS/.test(text))add("80PLUS");
   for(const match of text.matchAll(/\b(\d{1,2})\s*U\b/g))add(`${match[1]}U`);
   if(/메인보드|MOTHERBOARD|MAINBOARD/.test(text))add("MAINBOARD");

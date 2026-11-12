@@ -21,6 +21,18 @@ test("호환성 보완 부품은 직접 상품이며 핵심 품목어가 맞으�
   assert.equal(result[0].matchedModel,"서버 MAINBOARD X13");
 });
 
+test("완제품은 판매몰을 거쳐 제조사 공식 모델까지 찾고 가격 비공개를 허용한다",async()=>{
+  const requests=[];
+  const official=[{category:"서버 완제품",requestedModel:"Xeon 6960P GPU 서버",matchedModel:"Dell PowerEdge R760xa",specification:"Xeon 6960P, RTX PRO 6000, DDR5 ECC 64GB, NVMe 1TB",unitPrice:null,sourceName:"Dell",sourceUrl:"https://www.dell.com/ko-kr/shop/servers-storage-and-networking/poweredge-r760xa/spd/poweredge-r760xa",checkedAt:"2026-11-12",confidence:"high",status:"제조사 구성견적 필요",compatibilityStatus:"review",compatibilityNotes:["공개 가격 없음"]}];
+  const fetchImpl=async(url,options)=>{const request=JSON.parse(options.body);requests.push(request);const domains=request.tools[0].filters.allowed_domains;const products=domains.includes("dell.com")?official:[];return{ok:true,json:async()=>({output_text:JSON.stringify({products})})}};
+  const result=await findExternalPrices({settings:{apiKey:"secret"},requirements:[{id:"SERVER",category:"서버 완제품",model:"Xeon 6960P RTX PRO 6000 64GB 1TB",condition:"Xeon 6960P RTX PRO 6000 64GB 1TB",productSearchMode:"complete_product",completeProductType:"server",searchProfile:{requiredKeywords:["XEON","6960P","RTXPRO","6000","64GB","1TB"]},compatibilityContext:{}}],fetchImpl});
+  assert.equal(requests.length,3);
+  assert.ok(requests[1].tools[0].filters.allowed_domains.includes("coupang.com"));
+  assert.ok(requests[2].instructions.includes("단일 완제품 모델"));
+  assert.equal(result[0].matchedModel,"Dell PowerEdge R760xa");
+  assert.equal(result[0].unitPrice,null);
+});
+
 test("문장형 규격서는 원문 블록 ID와 수량 근거를 요구한다",async()=>{
   let request;
   const payload={noticeNumber:"R1",title:"PC 구매",organization:"기관",deadline:null,budget:null,qualifications:[],requirements:[{id:"REQ-1",category:"CPU",condition:"Ultra 5 225",quantity:null,evidence:"CPU Ultra 5 225 이상",evidenceBlockIds:["B1"],specificationGroup:"본체사양 1",unitQuantity:null,systemQuantity:null,priceRole:"component",constraints:[],searchKeywords:["Ultra 5 225"],confidence:0.9}],uncertainties:["수량 확인"]};

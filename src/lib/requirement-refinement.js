@@ -243,6 +243,7 @@ export function completeCompatibilityRequirements(extraction = {}) {
   }
   const added = [];
   for (const [group, items] of groups) {
+    if (items.some((item) => item.productSearchMode === "complete_product")) continue;
     const categories = new Set(items.filter((item) => !["complete_system", "non_price"].includes(item.priceRole) && HARDWARE_CATEGORIES.has(canonicalComponentCategory(item))).map(canonicalComponentCategory));
     const hardwareCount = categories.size;
     const isComposableComputer = categories.has("CPU") && hardwareCount >= 3;

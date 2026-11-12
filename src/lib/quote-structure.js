@@ -20,7 +20,12 @@ export function isWholeSystemItem(item = {}) {
   return wholeSystemPattern.test(String(item.category || "").trim());
 }
 
+export function isCompleteProductSearchItem(item = {}) {
+  return item.priceRole === "complete_system" && item.productSearchMode === "complete_product";
+}
+
 export function isPriceableRequirement(item = {}) {
+  if (isCompleteProductSearchItem(item)) return Boolean(String(item.condition || item.requirement || "").trim());
   if (["complete_system", "non_price"].includes(item.priceRole)) return false;
   if (isWholeSystemItem(item)) return false;
   if (!item.priceRole && nonPricePattern.test(String(item.category || ""))) return false;
@@ -38,6 +43,7 @@ const categoryMappings = [
 ];
 
 export function canonicalComponentCategory(item = {}) {
+  if (isCompleteProductSearchItem(item)) return item.completeProductType === "laptop" ? "노트북 완제품" : "서버 완제품";
   const categoryText = String(item.category || "");
   const text = `${categoryText} ${item.requirement || item.condition || ""}`;
   const byCategoryText = categoryMappings.find(([, pattern]) => pattern.test(categoryText))?.[0];
@@ -59,7 +65,7 @@ function mode(values) {
 }
 
 export function buildQuoteGroups(configuration = []) {
-  const usable = configuration.filter((item) => !isWholeSystemItem(item) && item.priceRole !== "non_price");
+  const usable = configuration.filter((item) => (!isWholeSystemItem(item) || isCompleteProductSearchItem(item)) && item.priceRole !== "non_price");
   const explicitGroups = usable.map(inferredSpecificationGroup).filter(Boolean);
   const fallbackGroup = explicitGroups.length ? "공통 품목" : "본체사양 1";
   const grouped = new Map();

@@ -42,3 +42,18 @@ test("서버의 서로 다른 SSD 용량은 같은 M.2 위치에 연속 행으�
   const values=[];detail.eachRow((row)=>values.push(...row.values));
   assert.ok(!values.includes("데스크탑 입가공비"));
 });
+
+test("노트북 완제품은 부품 빈 행 없이 판매 모델 한 행으로 견적서를 만든다",async()=>{
+  const completeReport={...report,configuration:[
+    {category:"노트북 완제품",requirement:"Ryzen 9 8945HX · RTX 5070 Ti Laptop · 32GB · 1TB · 16인치 240Hz",selectedModel:"ASUS ROG Strix G16",unitPrice:3290000,quantity:40,source:"https://www.compuzone.co.kr/product/product_detail.htm?ProductNo=10",status:"요구사양 충족 확인",specificationGroup:"GPU 탑재 노트북",unitQuantity:1,systemQuantity:40,priceRole:"complete_system",productSearchMode:"complete_product",completeProductType:"laptop"},
+  ]};
+  const buffer=await quoteWorkbookBuffer(notice,completeReport,extraction,12);
+  const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(buffer);
+  const detail=workbook.getWorksheet("GPU 탑재 노트북");
+  assert.match(detail.getCell("A1").value,/완제품 견적/);
+  assert.equal(detail.getCell("A10").value,"노트북 완제품");
+  assert.equal(detail.getCell("C10").value,"ASUS ROG Strix G16");
+  assert.equal(detail.getCell("D10").value,3290000);
+  assert.equal(detail.getCell("A11").value,"1대당 확인 원가");
+  assert.equal(workbook.getWorksheet("통합견적").getCell("B10").value,"완제품 모델 1종");
+});

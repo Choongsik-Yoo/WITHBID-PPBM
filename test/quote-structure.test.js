@@ -8,6 +8,14 @@ test("완제품 본체와 행정 요구사항은 가격 검색에서 제외한�
   assert.equal(isPriceableRequirement({category:"CPU 사양 1",condition:"Ultra 7 265K",quantity:4,priceRole:"component"}),true);
 });
 
+test("노트북·서버 완제품 검색용 행은 가격 조사와 견적 그룹에 포함한다",()=>{
+  const item={category:"노트북 완제품",condition:"RTX 5070 Ti Laptop GPU 노트북",quantity:40,unitQuantity:1,systemQuantity:40,priceRole:"complete_system",productSearchMode:"complete_product",completeProductType:"laptop",specificationGroup:"GPU 탑재 노트북"};
+  assert.equal(isPriceableRequirement(item),true);
+  const groups=buildQuoteGroups([{...item,requirement:item.condition}]);
+  assert.equal(groups[0].items[0].category,"노트북 완제품");
+  assert.equal(groups[0].systemQuantity,40);
+});
+
 test("여러 본체 사양을 분리하고 전체수량을 1대당 수량으로 환산한다",()=>{
   const groups=buildQuoteGroups([
     {category:"데스크탑 컴퓨터 본체 사양 1",quantity:4,priceRole:"complete_system",specificationGroup:"본체사양 1"},

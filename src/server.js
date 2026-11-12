@@ -22,6 +22,7 @@ import { assessDocumentStructure, extractDocumentBlocks } from "./lib/document-a
 import { buildVerifiedQuotePlan, verifyExtraction } from "./lib/verified-quote.js";
 import { buildCompatibilityContext, COMPONENT_RESEARCH_ORDER, pricingGroupName, sortRequirementsForPricing } from "./lib/compatibility.js";
 import { completeCompatibilityRequirements, refineExtractedRequirements } from "./lib/requirement-refinement.js";
+import { applyCompleteProductStrategy } from "./lib/complete-products.js";
 import { createSettingsStore } from "./lib/secure-settings.js";
 
 const config = getConfig();
@@ -176,7 +177,7 @@ const server = http.createServer(async (request, response) => {
     const publicAuthPaths = new Set(["/api/app-info", "/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
 
     if (request.method === "GET" && url.pathname === "/api/app-info") {
-      return json(response, 200, { app: "WITHBID-PPBM", version: "0.7.0", dataRoot: config.dataRoot, storageMode:config.storageMode, localAdminMode:config.localAdminMode, nasRoot:config.nasRoot });
+      return json(response, 200, { app: "WITHBID-PPBM", version: "0.8.0", dataRoot: config.dataRoot, storageMode:config.storageMode, localAdminMode:config.localAdminMode, nasRoot:config.nasRoot });
     }
 
     if (request.method === "GET" && url.pathname === "/api/auth/config") {
@@ -359,13 +360,15 @@ const server = http.createServer(async (request, response) => {
       const refinedExtraction=refineExtractedRequirements(rawExtraction);
       await writeJson(path.join(base,"04_구조화데이터","AI_정밀화결과.json"),refinedExtraction);
       updateProgress(activeJobId,57,"원문 근거 검증","AI 추출값의 문장·수량·사양 그룹 근거를 대조하고 있습니다.");
-      const extraction=completeCompatibilityRequirements(verifyExtraction(refinedExtraction,blockExtraction.blocks,structureAssessment));
+      const extraction=completeCompatibilityRequirements(applyCompleteProductStrategy(verifyExtraction(refinedExtraction,blockExtraction.blocks,structureAssessment)));
       if(blockExtraction.errors.length)extraction.uncertainties.push(...blockExtraction.errors.map(item=>`${item.filename}: 텍스트 블록 추출 실패 (${item.error})`));
       base=await updateNoticeDetails(config.dataRoot,notice,{noticeNumber:extraction.noticeNumber||notice.noticeNumber,title:extraction.title||notice.title,organization:extraction.organization||notice.organization,deadline:extraction.deadline||notice.deadline,sourceUrl:finalUrl});
       await saveState(state);
       await fs.writeFile(path.join(base,"03_추출텍스트","공고페이지.txt"),sourceText,"utf8");
       await writeJson(path.join(base,"04_구조화데이터","AI_추출결과.json"),extraction);
-      updateProgress(activeJobId,63,"단가표 조회",`사양 그룹별로 ${COMPONENT_RESEARCH_ORDER.join(" → ")} 순서의 가격 조사를 시작합니다.`);
+      updateProgress(activeJobId,63,"단가표 조회",extraction.completeProductStrategy?.length
+        ? "노트북·서버는 완제품 모델을 우선 검색하고, 조립형 사양은 부품 순서대로 가격을 조사합니다."
+        : `사양 그룹별로 ${COMPONENT_RESEARCH_ORDER.join(" → ")} 순서의 가격 조사를 시작합니다.`);
       const priceableRequirements=sortRequirementsForPricing(extraction.requirements.filter(requirement=>isPriceableRequirement(requirement)&&requirement.priceSearchAllowed!==false));
       const priceCandidates=[];
       const externalPrices=[];
@@ -382,10 +385,14 @@ const server = http.createServer(async (request, response) => {
         if(companyMatches.length){
           currentCandidates=companyMatches.map(item=>({requirementId:requirement.id,requirement,model:item.model,specification:item.specification,unitPrice:item.unitPrice,matchScore:item.matchScore,matchType:item.matchType,matchedKeywords:item.matchedKeywords,source:"company_price_list",sourceUrl:null,stock:item.stock,checkedAt:state.priceList.importedAt,compatibilityStatus:item.compatibilityStatus,compatibilityNotes:item.compatibilityNotes,status:`자사 단가표 · ${item.matchType==="exact"?"정확 모델":"핵심사양 후보"} · 호환성 ${item.compatibilityStatus==="compatible"?"확인":"검토 필요"}`}));
         }else{
-          updateProgress(activeJobId,percent,"외부 가격 검색",`${group} · ${requirement.category}: 컴퓨존 → 가이드컴을 확인하고, 없으면 다나와까지 검색합니다.`);
-          const found=await findExternalPrices({settings,requirements:[{id:requirement.id,category:requirement.category,model:requirement.searchProfile?.exactModel||requirement.condition,searchKeywords:requirement.searchKeywords,searchProfile:requirement.searchProfile,constraints:requirement.constraints,quantity:requirement.quantity,specificationGroup:group,unitQuantity:requirement.unitQuantity,systemQuantity:requirement.systemQuantity,priceRole:requirement.priceRole,derivedFromCompatibility:requirement.derivedFromCompatibility,compatibilityContext}]});
+          updateProgress(activeJobId,percent,requirement.productSearchMode==="complete_product"?"완제품 모델 검색":"외부 가격 검색",requirement.productSearchMode==="complete_product"
+            ? `${group}: 컴퓨존·가이드컴 → 가격비교·쇼핑몰 → 제조사 공식 페이지 순으로 완제품을 확인합니다.`
+            : `${group} · ${requirement.category}: 컴퓨존 → 가이드컴을 확인하고, 없으면 다나와까지 검색합니다.`);
+          const found=await findExternalPrices({settings,requirements:[{id:requirement.id,category:requirement.category,model:requirement.searchProfile?.exactModel||requirement.condition,condition:requirement.condition,searchKeywords:requirement.searchKeywords,searchProfile:requirement.searchProfile,constraints:requirement.constraints,quantity:requirement.quantity,specificationGroup:group,unitQuantity:requirement.unitQuantity,systemQuantity:requirement.systemQuantity,priceRole:requirement.priceRole,productSearchMode:requirement.productSearchMode,completeProductType:requirement.completeProductType,componentRequirementIds:requirement.componentRequirementIds,derivedFromCompatibility:requirement.derivedFromCompatibility,compatibilityContext}]});
           externalPrices.push(...found);
-          currentCandidates=found.map(item=>({requirementId:item.requirementId,requirement,model:item.matchedModel,specification:item.specification,unitPrice:item.unitPrice,source:item.sourceName,sourceUrl:item.sourceUrl,stock:"웹 판매 페이지 확인",checkedAt:item.checkedAt,confidence:item.confidence,matchScore:item.matchScore,matchedKeywords:item.matchedKeywords,matchType:item.matchType,compatibilityStatus:item.compatibilityStatus,compatibilityNotes:item.compatibilityNotes,status:`${item.matchType==="exact"?"동일모델":"대체모델 후보"} · 일치도 ${item.matchScore}% · 호환성 ${item.compatibilityStatus==="compatible"?"확인":"검토 필요"} · ${item.status}`}));
+          currentCandidates=found.map(item=>({requirementId:item.requirementId,requirement,model:item.matchedModel,specification:item.specification,unitPrice:item.unitPrice,source:item.sourceName,sourceUrl:item.sourceUrl,stock:"웹 판매 페이지 확인",checkedAt:item.checkedAt,confidence:item.confidence,matchScore:item.matchScore,matchedKeywords:item.matchedKeywords,matchType:item.matchType,compatibilityStatus:item.compatibilityStatus,compatibilityNotes:item.compatibilityNotes,status:requirement.productSearchMode==="complete_product"
+            ? `단일 완제품 모델 · 일치도 ${item.matchScore}% · 요구사양 ${item.compatibilityStatus==="compatible"?"충족 확인":"최종 검토 필요"} · ${item.status}`
+            : `${item.matchType==="exact"?"동일모델":"대체모델 후보"} · 일치도 ${item.matchScore}% · 호환성 ${item.compatibilityStatus==="compatible"?"확인":"검토 필요"} · ${item.status}`}));
         }
         priceCandidates.push(...currentCandidates);
         const compatibilitySelection=currentCandidates[0]||{
@@ -396,7 +403,7 @@ const server = http.createServer(async (request, response) => {
         };
         selectedByGroup.set(group,[...selectedParts,compatibilitySelection]);
       }
-      await writeJson(path.join(base,"05_가격근거","가격조사결과.json"),{researchOrder:COMPONENT_RESEARCH_ORDER,sourcePriority:["company_price_list","컴퓨존","가이드컴","다나와"],companyPriceList:priceCandidates.filter(item=>item.source==="company_price_list"),externalPrices,compatibilityContexts:Object.fromEntries([...selectedByGroup].map(([group,items])=>[group,buildCompatibilityContext(items,group)])),checkedAt:new Date().toISOString()});
+      await writeJson(path.join(base,"05_가격근거","가격조사결과.json"),{researchOrder:["노트북·서버 완제품 우선",...COMPONENT_RESEARCH_ORDER],sourcePriority:["company_price_list","컴퓨존","가이드컴","다나와","주요 온라인 쇼핑몰","제조사 공식 페이지"],companyPriceList:priceCandidates.filter(item=>item.source==="company_price_list"),externalPrices,completeProductStrategy:extraction.completeProductStrategy||[],compatibilityContexts:Object.fromEntries([...selectedByGroup].map(([group,items])=>[group,buildCompatibilityContext(items,group)])),checkedAt:new Date().toISOString()});
       updateProgress(activeJobId,83,"견적 감사","부품 누락·중복·수량·완제품 이중계산 여부를 검사하고 있습니다.");
       const quotePlan=buildVerifiedQuotePlan(extraction,priceCandidates);
       await writeJson(path.join(base,"04_구조화데이터","검증된_견적계획.json"),quotePlan);

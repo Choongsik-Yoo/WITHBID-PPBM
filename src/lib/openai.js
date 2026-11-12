@@ -68,7 +68,7 @@ const extractionInstructions = `대한민국 조달공고와 첨부 문서의 �
 제공된 [block ID] 원문을 근거로 독립 납품 대상과 그 내부 부품을 구분한다. 표뿐 아니라 문장·문단·각주도 끝까지 읽는다.
 출력 전에 내부적으로 ①사양 그룹 경계 ②구매 가능한 개별 SKU ③수량 ④원문 근거를 차례로 점검하고, JSON만 출력한다.
 본체사양 1, 본체사양 2, 서버, 워크스테이션, 교사용, 학생용처럼 수량 또는 사양이 다른 대상은 specificationGroup을 분리한다.
-완제품 컴퓨터나 본체 전체 설명은 complete_system으로 기록하되 내부 부품과 중복 가격을 만들지 않는다.
+완제품 컴퓨터나 본체 전체 설명은 complete_system으로 기록하되 내부 부품과 중복 가격을 만들지 않는다. 노트북과 서버는 완제품 모델 검색에 사용할 수 있도록 장비 전체 목적·형태를 complete_system 행으로 남기고, CPU·GPU·RAM·저장장치·화면·운영체제·배터리·중량·보증 같은 세부 조건도 각각 근거가 있는 requirements 행으로 분리한다.
 각 구성의 CASE, MAINBOARD, CPU, CPU 쿨러, RAM, SSD/M.2, HDD, POWER, VGA, 운영체제, 주변기기, 소프트웨어와 서비스는 개별 행으로 분리한다.
 한 문장에 여러 부품이 있으면 반드시 부품별 requirements 행으로 나눈다. 같은 종류라도 용량·모델·수량이 다르면 각각 독립 행으로 나눈다. 예: 'NVMe U.2 SSD 2개, 1.92TB 1개와 15.36TB 1개'는 M.2 1.92TB 1개와 M.2 15.36TB 1개의 두 행이다. 문장 앞의 부품명이 뒤 문장까지 이어지는 문맥을 보존한다.
 장비 전체 납품수량은 systemQuantity, 장비 1대당 부품 수량은 unitQuantity, 전체 부품수량은 quantity에 기록한다.
@@ -96,7 +96,7 @@ const externalPriceSchema={
   value:{type:"object",additionalProperties:false,required:["products"],properties:{
     products:{type:"array",items:{type:"object",additionalProperties:false,
       required:["category","requestedModel","matchedModel","specification","unitPrice","sourceName","sourceUrl","checkedAt","confidence","status","compatibilityStatus","compatibilityNotes"],
-      properties:{category:{type:"string"},requestedModel:{type:"string"},matchedModel:{type:["string","null"]},specification:{type:["string","null"]},unitPrice:{type:["number","null"]},sourceName:{type:["string","null"],enum:["컴퓨존","가이드컴","다나와",null]},sourceUrl:{type:["string","null"]},checkedAt:{type:"string"},confidence:{type:"string",enum:["high","medium","low"]},status:{type:"string"},compatibilityStatus:{type:"string",enum:["compatible","review","incompatible"]},compatibilityNotes:{type:"array",items:{type:"string"}}}
+      properties:{category:{type:"string"},requestedModel:{type:"string"},matchedModel:{type:["string","null"]},specification:{type:["string","null"]},unitPrice:{type:["number","null"]},sourceName:{type:["string","null"],enum:["컴퓨존","가이드컴","다나와","쿠팡","11번가","G마켓","옥션","SSG","롯데ON","삼성전자","LG전자","HP","Dell","Lenovo","ASUS","HPE","제조사",null]},sourceUrl:{type:["string","null"]},checkedAt:{type:"string"},confidence:{type:"string",enum:["high","medium","low"]},status:{type:"string"},compatibilityStatus:{type:"string",enum:["compatible","review","incompatible"]},compatibilityNotes:{type:"array",items:{type:"string"}}}
     }}
   }}
 };
@@ -110,6 +110,11 @@ const externalPriceInstructions=`한국 PC 부품 가격 조사자다. 자사 �
 POWER 품목에 정격 출력(W)이 원문에 명시되지 않았으면, 구성된 CPU와 VGA(그래픽카드)의 공식 최대 소비전력(TDP/PL2)을 각각 검색해 확인하고 메인보드·메모리·저장장치·쿨러 등 나머지 구성 요소의 통상 소비전력을 더한 뒤 20~30% 이상의 여유율을 적용해 필요한 정격 출력을 계산한다. 계산한 용량 이상이면서 80PLUS 인증을 받은 실제 판매 중인 파워서플라이를 선정하고, status에 CPU/VGA 소비전력과 계산한 총 필요 용량을 구체적인 숫자로 기록한다.
 직접 상품 페이지에 표시된 현재 판매가격과 상품 상세 URL만 기록한다. 다나와는 prod.danawa.com/info/ 형식의 pcode가 있는 상품 상세 링크와 가격만 허용한다. 검색결과·카테고리·블로그 링크는 기록하지 않는다. 동일 제품 여러 개가 한 구성에 필요해도 unitPrice는 1개 가격이다.`;
 
+const completeProductPriceInstructions=`현재 품목은 부품 조립 견적이 아니라 노트북 또는 서버 완제품 한 대다. 서로 다른 판매 모델의 사양이나 가격을 조합하지 말고, 단일 완제품 모델의 제조사 모델명·구성 SKU로 모든 필수 조건을 검증한다.
+노트북은 CPU, Laptop GPU와 VRAM, RAM, 저장장치, 화면 크기·해상도·주사율, 배터리, 무게, 운영체제, 전원 어댑터와 보증 조건을 상품 상세나 제조사 사양표에서 대조한다. 서버는 제조사 모델·구성 SKU 하나에 CPU, GPU, RAM, 저장장치, 섀시, 이중화 전원과 보증이 실제 포함되는지 대조한다.
+필수 조건을 모두 확인한 단일 완제품만 compatibilityStatus=compatible로 기록한다. 일부 조건이 상품 페이지에서 확인되지 않으면 review로 기록하고 compatibilityNotes에 미확인 조건을 구체적으로 적는다. 조건에 어긋나면 incompatible로 기록한다.
+가격이 공개된 판매 상품은 현재 1대 판매가를 unitPrice에 기록한다. 제조사 공식 모델·구성은 확인되지만 가격이 공개되지 않은 경우 unitPrice는 null로 두고, 직접 제품 상세 URL과 status에 '제조사 구성견적 필요'를 기록한다.`;
+
 function isDirectProductUrl(value) {
   try {
     const url=new URL(value);
@@ -118,6 +123,19 @@ function isDirectProductUrl(value) {
     if(host==="www.compuzone.co.kr"||host==="compuzone.co.kr")return /\/product\//i.test(url.pathname);
     if(host==="www.guidecom.co.kr"||host==="guidecom.co.kr")return !/\/search/i.test(url.pathname);
     if(host==="prod.danawa.com")return /^\/info\//i.test(url.pathname)&&Boolean(url.searchParams.get("pcode"));
+    if(host.endsWith("coupang.com"))return /^\/vp\/products\//i.test(url.pathname);
+    if(host.endsWith("11st.co.kr"))return /^\/products\//i.test(url.pathname);
+    if(host==="item.gmarket.co.kr")return /\/item/i.test(url.pathname)&&Boolean(url.searchParams.get("goodscode"));
+    if(host==="itempage3.auction.co.kr")return /detailview/i.test(url.pathname)&&Boolean(url.searchParams.get("itemno"));
+    if(host.endsWith("ssg.com"))return /\/item\//i.test(url.pathname)||Boolean(url.searchParams.get("itemId"));
+    if(host.endsWith("lotteon.com"))return /\/p\/product\//i.test(url.pathname);
+    if(host.endsWith("samsung.com"))return /\/sec\//i.test(url.pathname)&&!/search/i.test(url.href);
+    if(host.endsWith("lge.co.kr"))return url.pathname.split("/").filter(Boolean).length>=1&&!/search/i.test(url.href);
+    if(host.endsWith("hp.com"))return /\/shop\//i.test(url.pathname)&&!/search/i.test(url.href);
+    if(host.endsWith("dell.com"))return /\/shop\//i.test(url.pathname)&&!/search/i.test(url.href);
+    if(host.endsWith("lenovo.com"))return /\/p\//i.test(url.pathname)&&!/search/i.test(url.href);
+    if(host.endsWith("asus.com"))return url.pathname.split("/").filter(Boolean).length>=3&&!/search/i.test(url.href);
+    if(host.endsWith("hpe.com"))return !/search/i.test(url.href)&&url.pathname!=="/";
     return false;
   } catch { return false; }
 }
@@ -134,9 +152,10 @@ function mergeCompatibility(requirement,item) {
 export async function findExternalPrices({settings,requirements,fetchImpl=fetch}) {
   if(!requirements.length)return [];
   const searchOne=async requirement=>{
+    const completeProduct=requirement.productSearchMode==="complete_product";
     const requested=[requirement.searchProfile?.exactModel,requirement.model,...(requirement.searchProfile?.requiredKeywords||[]),...(requirement.searchKeywords||[])].filter(Boolean).join(" ");
-    const searchSites=async(allowedDomains,phase)=>{
-      const response=await fetchImpl("https://api.openai.com/v1/responses",{method:"POST",headers:{Authorization:`Bearer ${settings.apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:settings.extractionModel||defaults.extractionModel,reasoning:{effort:"low"},tools:[{type:"web_search",filters:{allowed_domains:allowedDomains}}],tool_choice:"required",include:["web_search_call.action.sources"],instructions:`${externalPriceInstructions}\n이번 검색 단계: ${phase}`,input:JSON.stringify(requirement),store:false,text:{format:{type:"json_schema",name:externalPriceSchema.name,strict:true,schema:externalPriceSchema.value}}})});
+    const searchSites=async(allowedDomains,phase,{allowMissingPrice=false}={})=>{
+      const response=await fetchImpl("https://api.openai.com/v1/responses",{method:"POST",headers:{Authorization:`Bearer ${settings.apiKey}`,"Content-Type":"application/json"},body:JSON.stringify({model:settings.extractionModel||defaults.extractionModel,reasoning:{effort:"low"},tools:[{type:"web_search",filters:{allowed_domains:allowedDomains}}],tool_choice:"required",include:["web_search_call.action.sources"],instructions:`${externalPriceInstructions}\n${completeProduct ? completeProductPriceInstructions : ""}\n이번 검색 단계: ${phase}`,input:JSON.stringify(requirement),store:false,text:{format:{type:"json_schema",name:externalPriceSchema.name,strict:true,schema:externalPriceSchema.value}}})});
       const payload=await response.json().catch(()=>({}));
       if(!response.ok)throw new Error(payload.error?.message||`외부 가격 검색 오류 (${response.status})`);
       return JSON.parse(responseText(payload)).products
@@ -147,16 +166,25 @@ export async function findExternalPrices({settings,requirements,fetchImpl=fetch}
           const match=directMatch.matchType==="exact"?directMatch:keywordMatch;
           return {...item,requirementId:requirement.id,specificationGroup:requirement.specificationGroup,unitQuantity:requirement.unitQuantity,systemQuantity:requirement.systemQuantity,priceRole:requirement.priceRole,...match,...mergeCompatibility(requirement,item)};
         })
-        .filter(item=>item.compatibilityStatus!=="incompatible"&&(item.matchType==="exact"||item.matchScore>=60||item.matchedKeywords.length>=2||(requirement.derivedFromCompatibility&&item.confidence!=="low"&&item.matchedKeywords.length>=1)))
-        .filter(item=>Number(item.unitPrice)>0&&isDirectProductUrl(item.sourceUrl))
-        .sort((a,b)=>b.matchScore-a.matchScore||priceSourcePriority(a.sourceName)-priceSourcePriority(b.sourceName)||a.unitPrice-b.unitPrice)
+        .filter(item=>item.compatibilityStatus!=="incompatible"&&(completeProduct
+          ? Boolean(item.matchedModel)&&item.confidence!=="low"&&(item.matchType==="exact"||item.matchScore>=35||item.matchedKeywords.length>=2)
+          : item.matchType==="exact"||item.matchScore>=60||item.matchedKeywords.length>=2||(requirement.derivedFromCompatibility&&item.confidence!=="low"&&item.matchedKeywords.length>=1)))
+        .filter(item=>isDirectProductUrl(item.sourceUrl)&&(Number(item.unitPrice)>0||(completeProduct&&allowMissingPrice)))
+        .sort((a,b)=>b.matchScore-a.matchScore||priceSourcePriority(a.sourceName)-priceSourcePriority(b.sourceName)||(Number(a.unitPrice)||Infinity)-(Number(b.unitPrice)||Infinity))
         .slice(0,3);
     };
     const primary=(await searchSites(["compuzone.co.kr","guidecom.co.kr"],"컴퓨존과 가이드컴만 검색한다."))
       .filter(item=>item.sourceName==="컴퓨존"||item.sourceName==="가이드컴");
     if(primary.length)return primary;
-    return (await searchSites(["danawa.com"],"앞 단계에 판매 가능한 후보가 없었다. 다나와 가격비교만 검색한다."))
+    if(!completeProduct)return (await searchSites(["danawa.com"],"앞 단계에 판매 가능한 후보가 없었다. 다나와 가격비교만 검색한다."))
       .filter(item=>item.sourceName==="다나와");
+    const marketplaceNames=new Set(["다나와","쿠팡","11번가","G마켓","옥션","SSG","롯데ON"]);
+    const marketplace=await searchSites(["danawa.com","coupang.com","11st.co.kr","gmarket.co.kr","auction.co.kr","ssg.com","lotteon.com"],"앞 단계에 적합한 완제품이 없었다. 국내 가격비교·온라인 쇼핑몰에서 단일 완제품 모델을 검색한다.");
+    const marketplaceProducts=marketplace.filter(item=>marketplaceNames.has(item.sourceName));
+    if(marketplaceProducts.length)return marketplaceProducts;
+    const manufacturerNames=new Set(["삼성전자","LG전자","HP","Dell","Lenovo","ASUS","HPE","제조사"]);
+    return (await searchSites(["samsung.com","lge.co.kr","hp.com","dell.com","lenovo.com","asus.com","hpe.com"],"판매몰에서 적합한 완제품을 찾지 못했다. 제조사 공식 제품 상세에서 모델·구성을 확인하고 공개 가격이 없으면 구성견적 필요로 기록한다.",{allowMissingPrice:true}))
+      .filter(item=>manufacturerNames.has(item.sourceName));
   };
   const products=[];
   for(const requirement of requirements)products.push(...await searchOne(requirement));

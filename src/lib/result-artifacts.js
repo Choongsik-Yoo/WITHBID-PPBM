@@ -1,12 +1,13 @@
 import ExcelJS from "exceljs";
-import { buildQuoteGroups, isWholeSystemItem } from "./quote-structure.js";
+import { buildQuoteGroups, isCompleteProductSearchItem, isWholeSystemItem } from "./quote-structure.js";
 
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" })[ch]);
 const won = (value) => value == null ? "미확인" : `${Number(value).toLocaleString("ko-KR")}원`;
 const moneyFormat = '#,##0"원"';
 
 export function reportToDashboardHtml(notice, report, extraction = {}) {
-  const configuration = report.configuration.filter((item) => !isWholeSystemItem(item) && item.priceRole !== "non_price");
+  const configuration = report.configuration.filter((item) => (!isWholeSystemItem(item) || isCompleteProductSearchItem(item)) && item.priceRole !== "non_price");
+  const hasCompleteProducts = configuration.some(isCompleteProductSearchItem);
   const priced = configuration.filter((item) => Number.isFinite(item.unitPrice));
   const total = priced.reduce((sum, item) => sum + item.unitPrice * (item.quantity || 0), 0);
   const incomplete = configuration.filter((item) => item.unitPrice == null || !(Number(item.quantity) > 0));
@@ -16,7 +17,7 @@ export function reportToDashboardHtml(notice, report, extraction = {}) {
   const rows = configuration.map((item) => `<tr><td>${esc(item.specificationGroup || "공통")}</td><td>${esc(item.category)}</td><td>${esc(item.requirement)}</td><td>${esc(item.selectedModel || "확인 필요")}</td><td class="num">${item.unitPrice == null ? "-" : won(item.unitPrice)}</td><td class="num">${esc(item.quantity ?? "-")}</td><td>${source(item.source)}</td><td><span class="tag">${esc(item.status)}</span></td></tr>`).join("");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(notice.title)} - 입찰참가판단 대시보드</title><style>
   :root{--navy:#12372a;--green:#0c694c;--cream:#f7f5ef;--line:#dce3dc;--text:#1e2923;--muted:#66736c;--amber:#b7791f;--red:#b33a2b}*{box-sizing:border-box}body{margin:0;background:var(--cream);color:var(--text);font-family:"Malgun Gothic",Arial,sans-serif}.wrap{max-width:1440px;margin:auto;padding:32px}.hero{padding:30px;border-radius:22px;background:linear-gradient(135deg,var(--navy),#195b43);color:white}.eyebrow{font-size:13px;letter-spacing:.12em;opacity:.8}.hero h1{margin:10px 0 18px;font-size:30px}.decision{display:inline-flex;padding:10px 16px;border-radius:999px;background:#fff;color:var(--navy);font-weight:800}.decision.conditional{color:var(--amber)}.decision.stop{color:var(--red)}.summary{max-width:1050px;line-height:1.75}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:18px 0}.card,.panel{background:white;border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 7px 24px #153d2710}.card .label{color:var(--muted);font-size:13px}.card .value{margin-top:9px;font-size:20px;font-weight:800}.columns{display:grid;grid-template-columns:1fr 1fr;gap:18px}.panel{margin-bottom:18px}.panel h2{margin:0 0 14px;font-size:19px}.panel li{margin:9px 0;line-height:1.55}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#e8f0eb;text-align:left;padding:12px;white-space:nowrap}td{padding:12px;border-bottom:1px solid #e8ece9;vertical-align:top;line-height:1.45}.num{text-align:right;white-space:nowrap}.tag{display:inline-block;background:#edf2ef;border-radius:999px;padding:5px 8px}footer{color:var(--muted);font-size:12px;text-align:center;padding:12px}@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}.columns{grid-template-columns:1fr}.wrap{padding:16px}}@media print{body{background:white}.wrap{max-width:none;padding:0}.card,.panel{box-shadow:none;break-inside:avoid}}
-  </style></head><body><main class="wrap"><section class="hero"><div class="eyebrow">WITHBID-PPBM · PROCUREMENT DECISION</div><h1>${esc(notice.title)}</h1><div class="decision ${decisionClass}">${esc(report.decision)}</div><p class="summary">${esc(report.summary)}</p></section><section class="grid"><div class="card"><div class="label">공고번호</div><div class="value">${esc(notice.noticeNumber)}</div></div><div class="card"><div class="label">수요기관</div><div class="value">${esc(notice.organization || "확인 필요")}</div></div><div class="card"><div class="label">마감일</div><div class="value">${esc(notice.deadline)}</div></div><div class="card"><div class="label">예산 / 견적 원가</div><div class="value">${won(extraction.budget)} / ${incomplete.length ? `미확인 (${incomplete.length}개 항목)` : won(total || null)}</div></div></section><section class="columns"><div><article class="panel"><h2>자격·인증 검토</h2><ul>${list(report.qualificationReview)}</ul></article><article class="panel"><h2>주요 리스크</h2><ul>${list(report.risks)}</ul></article></div><article class="panel"><h2>실무 확인 체크리스트</h2><ul>${list(report.checklist)}</ul></article></section><article class="panel"><h2>사양별 부품 구성 견적</h2><div class="table-wrap"><table><thead><tr><th>사양 그룹</th><th>구분</th><th>요구사양</th><th>선정 모델</th><th>단가</th><th>전체수량</th><th>가격 출처</th><th>상태</th></tr></thead><tbody>${rows}</tbody></table></div></article><footer>완제품 본체 가격은 제외하고, 사양별 구성 부품 원가를 합산한 결과입니다. 미확인 항목이 있으면 총액을 확정하지 않으며 최종 투찰 전 원문과 담당자 검토가 필요합니다.</footer></main></body></html>`;
+  </style></head><body><main class="wrap"><section class="hero"><div class="eyebrow">WITHBID-PPBM · PROCUREMENT DECISION</div><h1>${esc(notice.title)}</h1><div class="decision ${decisionClass}">${esc(report.decision)}</div><p class="summary">${esc(report.summary)}</p></section><section class="grid"><div class="card"><div class="label">공고번호</div><div class="value">${esc(notice.noticeNumber)}</div></div><div class="card"><div class="label">수요기관</div><div class="value">${esc(notice.organization || "확인 필요")}</div></div><div class="card"><div class="label">마감일</div><div class="value">${esc(notice.deadline)}</div></div><div class="card"><div class="label">예산 / 견적 원가</div><div class="value">${won(extraction.budget)} / ${incomplete.length ? `미확인 (${incomplete.length}개 항목)` : won(total || null)}</div></div></section><section class="columns"><div><article class="panel"><h2>자격·인증 검토</h2><ul>${list(report.qualificationReview)}</ul></article><article class="panel"><h2>주요 리스크</h2><ul>${list(report.risks)}</ul></article></div><article class="panel"><h2>실무 확인 체크리스트</h2><ul>${list(report.checklist)}</ul></article></section><article class="panel"><h2>${hasCompleteProducts ? "사양별 완제품·부품 견적" : "사양별 부품 구성 견적"}</h2><div class="table-wrap"><table><thead><tr><th>사양 그룹</th><th>구분</th><th>요구사양</th><th>선정 모델</th><th>단가</th><th>전체수량</th><th>가격 출처</th><th>상태</th></tr></thead><tbody>${rows}</tbody></table></div></article><footer>${hasCompleteProducts ? "노트북·서버는 단일 완제품 모델의 판매가격을 적용하고, 조립형 데스크탑은 구성 부품 원가를 합산했습니다." : "완제품 본체 가격은 제외하고, 사양별 구성 부품 원가를 합산한 결과입니다."} 미확인 항목이 있으면 총액을 확정하지 않으며 최종 투찰 전 원문과 담당자 검토가 필요합니다.</footer></main></body></html>`;
 }
 
 const componentTemplate = [
@@ -44,6 +45,11 @@ const componentTemplate = [
 const requiredComputerCategories = new Set(["CASE", "MAINBOARD", "CPU", "CPU 쿨러", "RAM", "M.2", "POWER"]);
 
 function makeRows(group) {
+  const hasCompleteProduct = group.items.some(isCompleteProductSearchItem);
+  if (hasCompleteProduct) return group.items.map((item) => ({
+    category:item.category, requirement:item.requirement || null, selectedModel:item.selectedModel || null,
+    unitPrice:item.unitPrice, unitQuantity:item.unitQuantity, source:item.source || null, status:item.status || null,
+  }));
   const used = new Set();
   const isComputerGroup = /^본체사양\s*\d+/i.test(group.name) || group.items.some((item) => ["CPU", "MAINBOARD", "RAM", "VGA"].includes(item.category));
   const isServerGroup = /서버|SERVER/i.test(group.name) || group.items.some((item) => /서버|SERVER/i.test(`${item.requirement || ""} ${item.evidence || ""}`));
@@ -122,11 +128,12 @@ export async function quoteWorkbookBuffer(notice, report, extraction = {}, targe
   const detailRefs = [];
   for (const detail of details) {
     const { group, rows, sheetName } = detail;
+    const hasCompleteProduct = group.items.some(isCompleteProductSearchItem);
     const sheet = workbook.addWorksheet(sheetName, { views:[{showGridLines:false,state:"frozen",ySplit:9}] });
     sheet.columns=[{width:18},{width:42},{width:38},{width:15},{width:12},{width:18},{width:20},{width:28}];
-    styleTitle(sheet, `${group.name} 부품 구성 견적`); addMetadata(sheet, notice, extraction, targetMargin, group);
+    styleTitle(sheet, `${group.name} ${hasCompleteProduct ? "완제품" : "부품 구성"} 견적`); addMetadata(sheet, notice, extraction, targetMargin, group);
     sheet.getCell("B6").numFmt="0.0%"; sheet.getCell("E6").numFmt=moneyFormat;
-    sheet.getRow(9).values=["구분","요구사양","선정모델","부품단가","1대당 수량","1대당 금액","가격 출처","매칭 상태"];
+    sheet.getRow(9).values=["구분","요구사양","선정모델",hasCompleteProduct ? "완제품 단가" : "부품단가","1대당 수량","1대당 금액","가격 출처","매칭 상태"];
     styleHeader(sheet.getRow(9));
     const start=10;
     rows.forEach((item,index)=>{const r=start+index;const isLink=/^https:\/\//i.test(item.source||"");const linkLabel=/\/search/i.test(item.source||"")?"검색 링크":"상품 링크";sheet.getRow(r).values=[item.category,item.requirement,item.selectedModel,item.unitPrice,item.unitQuantity,{formula:`IF(OR(D${r}="",E${r}=""),"",D${r}*E${r})`},isLink?{text:linkLabel,hyperlink:item.source}:item.source,item.status];sheet.getRow(r).height=34;sheet.getRow(r).alignment={vertical:"middle",wrapText:true};if(isLink)sheet.getCell(r,7).font={color:{argb:"FF0563C1"},underline:true};});
@@ -143,7 +150,7 @@ export async function quoteWorkbookBuffer(notice, report, extraction = {}, targe
     detailRefs.push({ group, sheetName, subtotal, groupTotal, vat, grand, missing });
   }
 
-  detailRefs.forEach((ref,index)=>{const r=10+index;const q=`'${ref.sheetName.replace(/'/g,"''")}'`;summary.getRow(r).values=[ref.group.name,`${ref.group.items.length}개 구성 부품`,{formula:`${q}!F${ref.subtotal}`},{formula:`${q}!E4`},{formula:`${q}!F${ref.groupTotal}`},{formula:`${q}!F${ref.vat}`},{formula:`${q}!F${ref.grand}`},{formula:`${q}!F${ref.missing}`}];summary.getRow(r).height=30;});
+  detailRefs.forEach((ref,index)=>{const r=10+index;const q=`'${ref.sheetName.replace(/'/g,"''")}'`;const description=ref.group.items.some(isCompleteProductSearchItem)?"완제품 모델 1종":`${ref.group.items.length}개 구성 부품`;summary.getRow(r).values=[ref.group.name,description,{formula:`${q}!F${ref.subtotal}`},{formula:`${q}!E4`},{formula:`${q}!F${ref.groupTotal}`},{formula:`${q}!F${ref.vat}`},{formula:`${q}!F${ref.grand}`},{formula:`${q}!F${ref.missing}`}];summary.getRow(r).height=30;});
   const summaryStart=10; const summaryEnd=Math.max(summaryStart,summaryStart+detailRefs.length-1); const totalRow=summaryEnd+2;
   const totalsReady=`AND(SUM(H${summaryStart}:H${summaryEnd})=0,COUNT(G${summaryStart}:G${summaryEnd})=${detailRefs.length})`;
   summary.mergeCells(totalRow,1,totalRow,4); summary.getCell(totalRow,1).value="전체 공급가액"; summary.getCell(totalRow,5).value={formula:`IF(${totalsReady},SUM(E${summaryStart}:E${summaryEnd}),"")`};

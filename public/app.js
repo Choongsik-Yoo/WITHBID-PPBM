@@ -135,7 +135,7 @@ async function initializeAuth() {
 
 async function loadUsers(){try{const users=await api("/api/admin/users");$("#userList").innerHTML=users.map((user)=>`<div class="user-row"><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)}</span><span class="role">${user.role}</span><button class="danger" type="button" data-delete-user="${encodeURIComponent(user.email)}" ${user.email===signedInUser?.email?"disabled":""}>삭제</button></div>`).join("");}catch(error){toast(error.message,true);}}
 
-const progressStages=["공고 조회","첨부 다운로드","압축파일 해제","한컴문서 변환","Excel 문서 변환","문서 구조 판정","AI 의미 분석","요구사양 정밀화","원문 근거 검증","단가표 조회","외부 가격 검색","견적 감사","참가 판단","결과 저장"];
+const progressStages=["공고 조회","첨부 다운로드","압축파일 해제","한컴문서 변환","Excel 문서 변환","문서 구조 판정","AI 의미 분석","요구사양 정밀화","원문 근거 검증","단가표 조회","완제품 모델 검색","외부 가격 검색","견적 감사","참가 판단","결과 저장"];
 function renderProgress(progress){
   const panel=$("#analysisProgress"); panel.hidden=false; panel.classList.toggle("failed",progress.status==="failed");
   const percent=Math.max(0,Math.min(100,Number(progress.percent)||0));

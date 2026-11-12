@@ -151,3 +151,24 @@ test("판매가격을 못 찾아도 규격서의 정확 모델과 규격 후보�
   assert.match(plan.configuration[0].status,/규격서 명시 모델/);
   assert.equal(plan.configuration[1].selectedModel,"CASE 규격 후보 (5U · RACKMOUNT)");
 });
+
+test("완제품 견적은 내부 부품을 제외하고 단일 판매 모델과 전체 수량을 사용한다",()=>{
+  const extraction={requirements:[
+    {...rawRequirement({id:"CPU",category:"CPU",condition:"Ryzen 9 8945HX",specificationGroup:"GPU 노트북",quantity:40,systemQuantity:40}),includedInCompleteProduct:true,priceSearchAllowed:false,verificationStatus:"verified"},
+    {...rawRequirement({id:"COMPLETE-GPU",category:"노트북 완제품",condition:"Ryzen 9 8945HX · RTX 5070 Ti Laptop · RAM 32GB · SSD 1TB",specificationGroup:"GPU 노트북",quantity:40,systemQuantity:40}),priceRole:"complete_system",productSearchMode:"complete_product",completeProductType:"laptop",componentRequirementIds:["CPU"],verificationStatus:"verified"},
+  ]};
+  const plan=buildVerifiedQuotePlan(extraction,[{requirementId:"COMPLETE-GPU",model:"ASUS ROG Strix G16 G614",unitPrice:3290000,source:"컴퓨존",sourceUrl:"https://www.compuzone.co.kr/product/product_detail.htm?ProductNo=10",matchScore:91,matchType:"keyword",compatibilityStatus:"compatible",status:"판매중"}]);
+  assert.equal(plan.configuration.length,1);
+  assert.equal(plan.configuration[0].category,"노트북 완제품");
+  assert.equal(plan.configuration[0].selectedModel,"ASUS ROG Strix G16 G614");
+  assert.equal(plan.configuration[0].unitPrice,3290000);
+  assert.equal(plan.configuration[0].quantity,40);
+});
+
+test("제조사 완제품 가격이 비공개이면 0원이 아니라 미확인으로 유지한다",()=>{
+  const extraction={requirements:[{...rawRequirement({id:"COMPLETE-SERVER",category:"서버 완제품",condition:"Xeon GPU 서버",quantity:1,systemQuantity:1}),priceRole:"complete_system",productSearchMode:"complete_product",completeProductType:"server",verificationStatus:"verified"}]};
+  const plan=buildVerifiedQuotePlan(extraction,[{requirementId:"COMPLETE-SERVER",model:"Dell PowerEdge R760",unitPrice:null,source:"Dell",sourceUrl:"https://www.dell.com/ko-kr/shop/poweredge/spd/poweredge-r760",matchScore:80,matchType:"keyword",compatibilityStatus:"review",status:"제조사 구성견적 필요"}]);
+  assert.equal(plan.configuration[0].unitPrice,null);
+  assert.match(plan.configuration[0].status,/구성견적 필요/);
+  assert.ok(plan.audit.some((item) => item.code === "PRICE_UNKNOWN"));
+});

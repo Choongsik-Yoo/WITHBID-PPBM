@@ -2,6 +2,7 @@ import { buildExternalSearches, coreModelKeywords, priceSourcePriority, scoreMod
 import {
   canonicalComponentCategory,
   inferredSpecificationGroup,
+  isCompleteProductSearchItem,
   isWholeSystemItem,
 } from "./quote-structure.js";
 import { normalizeEvidenceText } from "./document-analysis.js";
@@ -305,13 +306,15 @@ function candidateScore(requirement, candidate) {
   const sourceRank = candidate.source === "company_price_list" ? 1000 : 300-(priceSourcePriority(candidate.source)*10);
   const matchRank = candidate.matchType === "exact" ? 200 : 100;
   const compatibilityRank = candidate.compatibilityStatus === "incompatible" ? -10000 : candidate.compatibilityStatus === "compatible" ? 40 : 0;
-  return sourceRank + matchRank + compatibilityRank + Number(candidate.matchScore ?? match.matchScore ?? 0);
+  const pricedRank = Number(candidate.unitPrice) > 0 ? 50 : 0;
+  return sourceRank + matchRank + compatibilityRank + pricedRank + Number(candidate.matchScore ?? match.matchScore ?? 0);
 }
 
 function selectCandidate(requirement, candidates) {
+  const completeProduct = isCompleteProductSearchItem(requirement);
   return candidates
     .filter((candidate) => candidateRequirementId(candidate) === requirement.id)
-    .filter((candidate) => Number(candidate.unitPrice) > 0)
+    .filter((candidate) => completeProduct ? Boolean(clean(candidate.model || candidate.matchedModel)) : Number(candidate.unitPrice) > 0)
     .filter((candidate) => candidate.compatibilityStatus !== "incompatible")
     .sort((left, right) => candidateScore(requirement, right) - candidateScore(requirement, left))[0] || null;
 }
@@ -325,6 +328,12 @@ function auditConfiguration(configuration, sourceRequirements) {
     groups.get(group).push(item);
   }
   for (const [group, items] of groups) {
+    const completeProductItems = items.filter(isCompleteProductSearchItem);
+    if (completeProductItems.length) {
+      if (completeProductItems.length > 1) issues.push({ severity:"blocking", code:"DUPLICATE_COMPLETE_PRODUCT", group, category:"완제품", message:`${group}: 완제품 견적행이 ${completeProductItems.length}개로 중복되었습니다.` });
+      if (!items.some((item) => finitePositive(item.systemQuantity))) issues.push({ severity:"blocking", code:"SYSTEM_QUANTITY_UNKNOWN", group, message:`${group}: 전체 납품수량을 확정하지 못했습니다.` });
+      continue;
+    }
     const categories = items.map((item) => canonicalComponentCategory(item));
     const coreCount = categories.filter((category) => essentialCategories.includes(category) || category === "VGA" || category === "HDD").length;
     if (coreCount >= 3) {
@@ -341,7 +350,8 @@ function auditConfiguration(configuration, sourceRequirements) {
     }
   }
   for (const requirement of sourceRequirements) {
-    if (["complete_system", "non_price"].includes(requirement.priceRole)) continue;
+    if (requirement.includedInCompleteProduct || requirement.priceRole === "non_price") continue;
+    if (requirement.priceRole === "complete_system" && !isCompleteProductSearchItem(requirement)) continue;
     if (requirement.verificationStatus === "conflict") issues.push({ severity: "blocking", code: "REQUIREMENT_CONFLICT", group: requirement.specificationGroup || "공통 품목", category: requirement.category, message: `${requirement.specificationGroup || "공통 품목"} ${requirement.category}: 요구조건 충돌을 확인해야 합니다.` });
     else if (requirement.verificationStatus !== "verified") issues.push({ severity: "warning", code: "EVIDENCE_REVIEW", group: requirement.specificationGroup || "공통 품목", category: requirement.category, message: `${requirement.specificationGroup || "공통 품목"} ${requirement.category}: 원문 근거를 확인해야 합니다.` });
     if (!finitePositive(requirement.unitQuantity)) issues.push({ severity: "blocking", code: "UNIT_QUANTITY_UNKNOWN", group: requirement.specificationGroup || "공통 품목", category: requirement.category, message: `${requirement.specificationGroup || "공통 품목"} ${requirement.category}: 1대당 수량을 확인해야 합니다.` });
@@ -358,17 +368,24 @@ function auditConfiguration(configuration, sourceRequirements) {
 export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
   const sourceRequirements = extraction.requirements || [];
   const quoteRequirements = sourceRequirements.filter((requirement) =>
-    !isWholeSystemItem(requirement) && requirement.priceRole !== "complete_system" && requirement.priceRole !== "non_price");
+    !requirement.includedInCompleteProduct
+    && requirement.priceRole !== "non_price"
+    && ((!isWholeSystemItem(requirement) && requirement.priceRole !== "complete_system") || isCompleteProductSearchItem(requirement)));
   const configuration = quoteRequirements.map((requirement) => {
+    const completeProduct = isCompleteProductSearchItem(requirement);
     const isBundled = requirement.bundledUnitPrice != null;
     const candidate = requirement.priceSearchAllowed === false ? null : selectCandidate(requirement, priceCandidates);
-    const selectedModel = candidate?.model || requirement.specifiedModel || requirement.selectionLabel || null;
+    const selectedModel = candidate?.model || candidate?.matchedModel || requirement.specifiedModel || (completeProduct ? "적합 완제품 모델 미확정" : requirement.selectionLabel || null);
     const manualSearch = (!candidate && !isBundled)
-      ? buildExternalSearches({ model: requirement.specifiedModel || requirement.condition || requirement.evidence || "" })[0]
+      ? buildExternalSearches({ category:requirement.category, model:requirement.specifiedModel || requirement.condition || requirement.evidence || "", productSearchMode:requirement.productSearchMode })[0]
       : null;
     const source = candidate?.sourceUrl || candidate?.source || manualSearch?.searchUrl || "";
     let status = "단가 미확인";
-    if (isBundled) status = "베어본에 포함된 구성품 · 중복 계상 방지를 위해 단가 0원 처리";
+    if (completeProduct && candidate && Number(candidate.unitPrice) > 0) status = `완제품 판매모델 · ${candidate.compatibilityStatus === "compatible" ? "요구사양 충족 확인" : "요구사양 최종 확인 필요"} · ${candidate.status || "판매 상태 확인"}`;
+    else if (completeProduct && candidate) status = `완제품 모델 확인 · 판매가격/제조사 구성견적 필요 · ${candidate.status || "가격 문의"}`;
+    else if (completeProduct && requirement.specifiedModel) status = "규격서 명시 완제품 · 온라인 판매가격 또는 제조사 견적 확인 필요";
+    else if (completeProduct) status = "요구사양 충족 완제품 모델 미확정 · 제조사 구성견적 필요";
+    else if (isBundled) status = "베어본에 포함된 구성품 · 중복 계상 방지를 위해 단가 0원 처리";
     else if (requirement.verificationStatus === "conflict") status = "요구조건 충돌 · 원문 확인 필요";
     else if (requirement.verificationStatus === "derived" && candidate) status = `호환 구성 보완 후보 · ${candidate.status || `일치도 ${candidate.matchScore ?? 0}%`}`;
     else if (requirement.verificationStatus === "derived") status = "호환 구성 보완 · 판매 모델/단가 확인 필요";
@@ -383,7 +400,7 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
       category: canonicalComponentCategory(requirement),
       requirement: requirement.condition || requirement.evidence || "원문 확인 필요",
       selectedModel,
-      unitPrice: isBundled ? Number(requirement.bundledUnitPrice) : (candidate ? Number(candidate.unitPrice) : null),
+      unitPrice: isBundled ? Number(requirement.bundledUnitPrice) : (candidate && Number(candidate.unitPrice) > 0 ? Number(candidate.unitPrice) : null),
       quantity: finitePositive(requirement.quantity),
       source,
       status,
@@ -398,6 +415,9 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
       searchKeywords: requirement.searchKeywords || [],
       constraints: requirement.constraints || [],
       searchProfile: requirement.searchProfile || null,
+      productSearchMode: requirement.productSearchMode || null,
+      completeProductType: requirement.completeProductType || null,
+      componentRequirementIds: requirement.componentRequirementIds || [],
       derivedFromCompatibility: Boolean(requirement.derivedFromCompatibility),
       compatibilityStatus: candidate?.compatibilityStatus || null,
       compatibilityNotes: candidate?.compatibilityNotes || [],
@@ -405,7 +425,7 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
   });
   const audit = auditConfiguration(configuration, sourceRequirements);
   return {
-    schemaVersion: "2.1",
+    schemaVersion: "2.2",
     generatedAt: new Date().toISOString(),
     configuration,
     audit,
