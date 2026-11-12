@@ -50,3 +50,25 @@ test("조립형 데스크탑 사양은 기존 부품 견적 방식을 유지한�
   ]});
   assert.equal(extraction.requirements.some((item) => item.productSearchMode === "complete_product"),false);
 });
+
+test("제조사와 모델이 명시된 워크스테이션은 부품보다 완제품 모델을 우선한다",()=>{
+  const extraction=applyCompleteProductStrategy({title:"Dell 워크스테이션 구매",requirements:[
+    requirement("SYSTEM","워크스테이션","Dell Precision 5860 Tower",{priceRole:"complete_system",specifiedModel:"Dell Precision 5860 Tower",constraints:[{field:"제조사",operator:"==",value:"Dell",unit:null}],specificationGroup:"워크스테이션"}),
+    requirement("CPU","CPU","Intel Xeon W",{specificationGroup:"워크스테이션"}),
+    requirement("RAM","RAM","DDR5 ECC 64GB",{specificationGroup:"워크스테이션"}),
+  ]});
+  const complete=extraction.requirements.find((item)=>item.productSearchMode==="complete_product");
+  assert.equal(complete.category,"워크스테이션 완제품");
+  assert.equal(complete.specifiedModel,"Dell Precision 5860 Tower");
+  assert.equal(complete.searchProfile.manufacturer,"Dell");
+  assert.equal(extraction.requirements.find((item)=>item.id==="CPU").includedInCompleteProduct,true);
+});
+
+test("모니터 제조사 모델은 단일 완제품 견적행으로 만든다",()=>{
+  const extraction=applyCompleteProductStrategy({title:"모니터 구매",requirements:[
+    requirement("MONITOR","모니터","Samsung S32A600 32인치 QHD",{priceRole:"peripheral",specifiedModel:"Samsung S32A600",specificationGroup:"모니터"}),
+  ]});
+  const complete=extraction.requirements.find((item)=>item.productSearchMode==="complete_product");
+  assert.equal(complete.category,"모니터 완제품");
+  assert.equal(complete.specifiedModel,"Samsung S32A600");
+});

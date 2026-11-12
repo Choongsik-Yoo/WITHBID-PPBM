@@ -141,7 +141,7 @@ test("가격 후보를 못 찾아도 가격 출처에 수동 확인용 검색 �
   assert.match(plan.configuration[0].status,/검색으로 수동 확인 필요/);
 });
 
-test("판매가격을 못 찾아도 규격서의 정확 모델과 규격 후보를 공란으로 두지 않는다",()=>{
+test("판매가격을 못 찾으면 정확 명시 모델만 보존하고 검색용 규격 후보는 선정모델로 쓰지 않는다",()=>{
   const extraction={requirements:[
     {...rawRequirement(),specifiedModel:"Intel Xeon 6960P",verificationStatus:"verified"},
     {...rawRequirement({id:"REQ-CASE",category:"CASE",condition:"5U 랙마운트 서버 섀시"}),specifiedModel:null,selectionLabel:"CASE 규격 후보 (5U · RACKMOUNT)",verificationStatus:"verified"},
@@ -149,7 +149,16 @@ test("판매가격을 못 찾아도 규격서의 정확 모델과 규격 후보�
   const plan=buildVerifiedQuotePlan(extraction,[]);
   assert.equal(plan.configuration[0].selectedModel,"Intel Xeon 6960P");
   assert.match(plan.configuration[0].status,/규격서 명시 모델/);
-  assert.equal(plan.configuration[1].selectedModel,"CASE 규격 후보 (5U · RACKMOUNT)");
+  assert.equal(plan.configuration[1].selectedModel,null);
+  assert.ok(plan.audit.some((item)=>item.code==="MODEL_UNKNOWN"&&item.category==="CASE"));
+});
+
+test("낮은 일치도의 부품은 가격이 있어도 자동 선정하지 않는다",()=>{
+  const extraction={requirements:[{...rawRequirement({id:"COOLER",category:"CPU 쿨러",condition:"LGA1851 200W 이상 공랭 쿨러"}),verificationStatus:"verified"}]};
+  const plan=buildVerifiedQuotePlan(extraction,[{requirementId:"COOLER",model:"PCCOOLER PALADIN 400",unitPrice:29700,source:"컴퓨존",matchScore:33,matchType:"keyword",compatibilityStatus:"compatible",status:"판매중"}]);
+  assert.equal(plan.configuration[0].selectedModel,null);
+  assert.equal(plan.configuration[0].unitPrice,null);
+  assert.equal(plan.quoteStatus,"draft");
 });
 
 test("완제품 견적은 내부 부품을 제외하고 단일 판매 모델과 전체 수량을 사용한다",()=>{

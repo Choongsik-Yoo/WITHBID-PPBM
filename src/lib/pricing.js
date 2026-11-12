@@ -120,13 +120,14 @@ export function buildExternalSearches(query) {
 }
 
 export function priceSourcePriority(source) {
-  return ({ company_price_list:0, "컴퓨존":1, "가이드컴":2, "쿠팡":3, "네이버쇼핑":4, "G마켓":5, "11번가":6, "다나와":7, "에누리":8, "옥션":9, "SSG":10, "롯데ON":11, "삼성전자":12, "LG전자":12, "HP":12, "Dell":12, "Lenovo":12, "ASUS":12, "HPE":12, "제조사":13 })[source] ?? 20;
+  return ({ company_price_list:0, "컴퓨존":1, "가이드컴":2, "쿠팡":3, "네이버쇼핑":4, "G마켓":5, "11번가":6, "다나와":7, "에누리":8, "옥션":9, "SSG":10, "롯데ON":11, "삼성전자":12, "LG전자":12, "HP":12, "Dell":12, "Lenovo":12, "ASUS":12, "HPE":12, "Acer":12, "MSI":12, "Apple":12, "제조사":13 })[source] ?? 20;
 }
 
 export function coreModelKeywords(value) {
   const text=String(value||"").toUpperCase().replace(/[\[\]()_,/]+/g," ").replace(/\s+/g," ");
   const keywords=[]; const add=value=>{if(value&&!keywords.includes(value))keywords.push(value);};
   for(const match of text.matchAll(/(?:DDR5\s*)?PC5[- ]?(\d{4,5})/g))add(`DDR5-${match[1]}`);
+  for(const match of text.matchAll(/\bDDR([345])[- ]?(\d{4,5})(?:\s*(?:MHZ|MT\/?S))?\b/g))add(`DDR${match[1]}-${match[2]}`);
   for(const match of text.matchAll(/RTX\s*(\d{4})/g))add(`RTX${match[1]}`);
   for(const match of text.matchAll(/RTX\s*PRO\s*(\d{4,5})/g)){add("RTXPRO");add(match[1]);}
   for(const match of text.matchAll(/\bXEON(?:\s+(?:PLATINUM|GOLD|SILVER|BRONZE))?\s+(\d{4,5}[A-Z]?)\b/g)){add("XEON");add(match[1]);}
@@ -148,7 +149,8 @@ export function coreModelKeywords(value) {
   if(/CPU\s*쿨러|CPU\s*COOLER|PROCESSOR\s*COOLER/.test(text))add("COOLER");
   if(/랙\s*마운트|RACK\s*MOUNT|RACKMOUNT/.test(text))add("RACKMOUNT");
   if(/섀시|CHASSIS/.test(text))add("CHASSIS");
-  for(const token of ["NVME","U.2","M.2","PCIE5","PCIE4","ECC","RDIMM","REGISTERED","REDUNDANT","RACKMOUNT","SATA","SAS","M-ATX","ATX"])if(text.includes(token.replace("-",""))||text.includes(token))add(token);
+  for(const gen of text.matchAll(/PCIE\s*(?:GEN\s*)?([345])(?:\.0)?/g))add(`PCIE${gen[1]}`);
+  for(const token of ["NVME","U.2","M.2","ECC","RDIMM","REGISTERED","REDUNDANT","RACKMOUNT","SATA","SAS","E-ATX","M-ATX","ATX"])if(text.includes(token.replace("-",""))||text.includes(token))add(token);
   for(const grade of ["TITANIUM","PLATINUM","GOLD","SILVER","BRONZE"])if(text.includes(grade))add(grade);
   const ultra=text.match(/ULTRA\s*([3579])\s+(?:프로세서\s+)?(\d{3}[A-Z]?)/);if(ultra){add(`ULTRA${ultra[1]}`);add(ultra[2]);}
   if(/\bDDR5\b/.test(text)&&!keywords.some(item=>item.startsWith("DDR5-")))add("DDR5");

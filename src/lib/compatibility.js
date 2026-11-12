@@ -45,8 +45,15 @@ function candidateText(candidate = {}) {
     candidate.matchedModel,
     candidate.specification,
     candidate.status,
-    candidate.requirement?.condition,
-    candidate.requirement?.specification,
+  ].filter(Boolean).join(" ");
+}
+
+function requirementText(requirement = {}) {
+  return [
+    requirement.condition,
+    requirement.requirement,
+    requirement.specification,
+    ...(requirement.constraints || []).map((item) => `${item.field || ""} ${item.operator || ""} ${item.value || ""}${item.unit || ""}`),
   ].filter(Boolean).join(" ");
 }
 
@@ -82,6 +89,69 @@ function recommendedPower(value) {
   return values.length ? Math.max(...values) : null;
 }
 
+function maximumPower(value) {
+  const values = [...String(value || "").toUpperCase().matchAll(/\b(\d{2,4})\s*W\b/g)].map((match) => Number(match[1]));
+  return values.length ? Math.max(...values) : null;
+}
+
+function memoryEcc(value) {
+  const text = String(value || "").toUpperCase();
+  if (/NON[- ]?ECC|비\s*ECC/.test(text)) return "NON-ECC";
+  if (/\bECC\b/.test(text)) return "ECC";
+  return null;
+}
+
+function dimmRegistration(value) {
+  const text = String(value || "").toUpperCase();
+  if (/\b(?:RDIMM|REGISTERED|REG\.?\s*DIMM)\b/.test(text)) return "RDIMM";
+  if (/\b(?:UDIMM|UNBUFFERED)\b/.test(text)) return "UDIMM";
+  return null;
+}
+
+function storageInterface(value) {
+  const text = String(value || "").toUpperCase();
+  if (/\bU\.2\b/.test(text)) return "U.2";
+  if (/\bM\.2\b/.test(text) && /\bNVME\b/.test(text)) return "M.2 NVME";
+  if (/\bNVME\b/.test(text)) return "NVME";
+  if (/\bSAS\b/.test(text)) return "SAS";
+  if (/\bSATA\b/.test(text)) return "SATA";
+  return null;
+}
+
+function efficiencyGrade(value) {
+  const text = String(value || "").toUpperCase();
+  return ["TITANIUM", "PLATINUM", "GOLD", "SILVER", "BRONZE"].find((grade) => text.includes(grade)) || null;
+}
+
+function efficiencyRank(value) {
+  return ({ BRONZE:1, SILVER:2, GOLD:3, PLATINUM:4, TITANIUM:5 })[value] || 0;
+}
+
+function millimeters(value, labels) {
+  const text = String(value || "").toUpperCase();
+  for (const label of labels) {
+    const match = text.match(new RegExp(`${label}[^0-9]{0,24}(\\d{2,4})\\s*MM`, "i"));
+    if (match) return Number(match[1]);
+  }
+  return null;
+}
+
+function gpuLength(value) {
+  return millimeters(value, ["GPU(?:\\s*길이)?", "VGA(?:\\s*길이)?", "GRAPHICS(?:\\s*CARD)?", "그래픽카드(?:\\s*길이)?"]);
+}
+
+function coolerHeight(value) {
+  return millimeters(value, ["CPU\\s*COOLER", "COOLER(?:\\s*HEIGHT)?", "쿨러(?:\\s*높이)?"]);
+}
+
+function caseGpuClearance(value) {
+  return millimeters(value, ["GPU(?:\\s*장착|\\s*지원|\\s*최대)?", "VGA(?:\\s*장착|\\s*지원|\\s*최대)?", "그래픽카드(?:\\s*장착|\\s*지원|\\s*최대)?"]);
+}
+
+function caseCoolerClearance(value) {
+  return millimeters(value, ["CPU\\s*쿨러(?:\\s*장착|\\s*지원|\\s*최대|\\s*높이)?", "COOLER(?:\\s*CLEARANCE|\\s*HEIGHT)?"]);
+}
+
 function caseSupports(caseFactor, boardFactor) {
   const supported = {
     "E-ATX": new Set(["E-ATX", "ATX", "M-ATX", "MINI-ITX"]),
@@ -105,6 +175,12 @@ export function buildCompatibilityContext(selectedParts = [], specificationGroup
       formFactor: category === "MAINBOARD" ? formFactor(text) : null,
       powerCapacityW: category === "POWER" ? powerCapacity(text) : null,
       recommendedPowerW: category === "VGA" ? recommendedPower(text) : null,
+      maximumPowerW: ["CPU", "VGA"].includes(category) ? maximumPower(text) : null,
+      memoryEcc: ["MAINBOARD", "RAM"].includes(category) ? memoryEcc(text) : null,
+      dimmRegistration: ["MAINBOARD", "RAM"].includes(category) ? dimmRegistration(text) : null,
+      storageInterface: category === "MAINBOARD" || category === "M.2" || category === "HDD" ? storageInterface(text) : null,
+      gpuLengthMm: category === "VGA" ? gpuLength(text) : null,
+      coolerHeightMm: category === "CPU 쿨러" ? coolerHeight(text) : null,
     };
   });
   const cpu = parts.find((part) => part.category === "CPU");
@@ -115,19 +191,36 @@ export function buildCompatibilityContext(selectedParts = [], specificationGroup
   const selectedMemoryType = mainboard?.memoryType || cpu?.memoryType || null;
   const mainboardFormFactor = mainboard?.formFactor || null;
   const minimumPowerW = vga?.recommendedPowerW || null;
+  const cpuMaximumPowerW = cpu?.maximumPowerW || null;
+  const gpuMaximumPowerW = vga?.maximumPowerW || null;
+  const estimatedMinimumPowerW = minimumPowerW || (cpuMaximumPowerW || gpuMaximumPowerW ? Math.ceil(((cpuMaximumPowerW || 0) + (gpuMaximumPowerW || 0) + 150) * 1.25 / 50) * 50 : null);
   const summary = [
     cpuSocket ? `CPU 소켓 ${cpuSocket}` : null,
     mainboardSocket ? `메인보드 소켓 ${mainboardSocket}` : null,
     selectedMemoryType ? `메모리 ${selectedMemoryType}` : null,
     mainboardFormFactor ? `메인보드 크기 ${mainboardFormFactor}` : null,
-    minimumPowerW ? `그래픽카드 권장 파워 ${minimumPowerW}W 이상` : null,
+    estimatedMinimumPowerW ? `필요 정격 파워 ${estimatedMinimumPowerW}W 이상` : null,
   ].filter(Boolean).join(" · ");
-  return { specificationGroup, cpuSocket, mainboardSocket, memoryType:selectedMemoryType, mainboardFormFactor, minimumPowerW, selectedParts:parts, summary:summary || "선행 선택 부품 없음" };
+  return {
+    specificationGroup,
+    cpuSocket,
+    mainboardSocket,
+    memoryType:selectedMemoryType,
+    memoryEcc:mainboard?.memoryEcc || null,
+    dimmRegistration:mainboard?.dimmRegistration || null,
+    mainboardFormFactor,
+    minimumPowerW:estimatedMinimumPowerW,
+    gpuLengthMm:vga?.gpuLengthMm || null,
+    coolerHeightMm:parts.find((part) => part.category === "CPU 쿨러")?.coolerHeightMm || null,
+    selectedParts:parts,
+    summary:summary || "선행 선택 부품 없음",
+  };
 }
 
 export function evaluateCandidateCompatibility(requirement = {}, candidate = {}, context = {}) {
   const category = canonicalComponentCategory(requirement);
-  const text = candidateText({ ...candidate, requirement });
+  const text = candidateText(candidate);
+  const required = requirementText(requirement);
   const notes = [];
   let checked = 0;
   let incompatible = false;
@@ -144,6 +237,12 @@ export function evaluateCandidateCompatibility(requirement = {}, candidate = {},
   if (category === "MAINBOARD") compare("CPU 소켓", context.cpuSocket, normalizedSocket(text));
   if (category === "CPU 쿨러") compare("CPU 소켓", context.mainboardSocket || context.cpuSocket, normalizedSocket(text));
   if (category === "RAM") compare("메모리 규격", context.memoryType, memoryType(text));
+  if (category === "RAM" && /\bECC\b/i.test(required)) compare("ECC 지원", "ECC", memoryEcc(text));
+  if (category === "RAM" && /\b(?:RDIMM|REGISTERED|REG\.?\s*DIMM)\b/i.test(required)) compare("메모리 모듈", "RDIMM", dimmRegistration(text));
+  if (["M.2", "HDD"].includes(category)) {
+    const expectedInterface = storageInterface(required);
+    if (expectedInterface) compare("저장장치 인터페이스", expectedInterface, storageInterface(text));
+  }
   if (category === "POWER" && context.minimumPowerW) {
     checked += 1;
     const watts = powerCapacity(text);
@@ -153,6 +252,26 @@ export function evaluateCandidateCompatibility(requirement = {}, candidate = {},
       notes.push(`정격 출력 부족 (${watts}W < ${context.minimumPowerW}W)`);
     } else notes.push(`정격 출력 충족 (${watts}W)`);
   }
+  if (category === "POWER") {
+    const expectedGrade = efficiencyGrade(required);
+    if (expectedGrade) {
+      checked += 1;
+      const actualGrade = efficiencyGrade(text);
+      if (!actualGrade) notes.push(`전원 효율등급 확인 필요 (${expectedGrade} 이상)`);
+      else if (efficiencyRank(actualGrade) < efficiencyRank(expectedGrade)) { incompatible = true; notes.push(`전원 효율등급 부족 (${actualGrade} < ${expectedGrade})`); }
+      else notes.push(`전원 효율등급 충족 (${actualGrade})`);
+    }
+  }
+  if (category === "CASE") {
+    const requiredFactor = formFactor(required);
+    if (requiredFactor) {
+      checked += 1;
+      const candidateFactor = formFactor(text);
+      if (!candidateFactor) notes.push(`필수 메인보드 장착 규격 확인 필요 (${requiredFactor})`);
+      else if (!caseSupports(candidateFactor, requiredFactor)) { incompatible = true; notes.push(`필수 케이스 규격 불충족 (${candidateFactor}에 ${requiredFactor} 장착 불가)`); }
+      else notes.push(`필수 케이스 규격 충족 (${candidateFactor})`);
+    }
+  }
   if (category === "CASE" && context.mainboardFormFactor) {
     checked += 1;
     const candidateFactor = formFactor(text);
@@ -161,6 +280,20 @@ export function evaluateCandidateCompatibility(requirement = {}, candidate = {},
       incompatible = true;
       notes.push(`케이스 규격 불일치 (${candidateFactor}에 ${context.mainboardFormFactor} 장착 불가)`);
     } else notes.push(`메인보드 장착 규격 충족 (${candidateFactor})`);
+  }
+  if (category === "CASE" && context.gpuLengthMm) {
+    checked += 1;
+    const clearance = caseGpuClearance(text);
+    if (!clearance) notes.push(`그래픽카드 장착 길이 확인 필요 (${context.gpuLengthMm}mm 이상)`);
+    else if (clearance < context.gpuLengthMm) { incompatible = true; notes.push(`그래픽카드 장착 공간 부족 (${clearance}mm < ${context.gpuLengthMm}mm)`); }
+    else notes.push(`그래픽카드 장착 길이 충족 (${clearance}mm)`);
+  }
+  if (category === "CASE" && context.coolerHeightMm) {
+    checked += 1;
+    const clearance = caseCoolerClearance(text);
+    if (!clearance) notes.push(`CPU 쿨러 높이 확인 필요 (${context.coolerHeightMm}mm 이상)`);
+    else if (clearance < context.coolerHeightMm) { incompatible = true; notes.push(`CPU 쿨러 장착 높이 부족 (${clearance}mm < ${context.coolerHeightMm}mm)`); }
+    else notes.push(`CPU 쿨러 장착 높이 충족 (${clearance}mm)`);
   }
 
   if (incompatible) return { compatibilityStatus:"incompatible", compatibilityScore:-1000, compatibilityNotes:notes };

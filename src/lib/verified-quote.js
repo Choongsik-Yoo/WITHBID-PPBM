@@ -303,11 +303,36 @@ function candidateRequirementId(candidate) {
 function candidateScore(requirement, candidate) {
   const requested = [requirement.condition, ...(requirement.searchKeywords || [])].filter(Boolean).join(" ");
   const match = scoreModelMatch(requested, `${candidate.model || ""} ${candidate.specification || ""}`);
-  const sourceRank = candidate.source === "company_price_list" ? 1000 : 300-(priceSourcePriority(candidate.source)*10);
-  const matchRank = candidate.matchType === "exact" ? 200 : 100;
+  const exactRequested = requirement.specifiedModel || requirement.searchProfile?.exactModel || "";
+  const exactIdentity = exactRequested ? scoreModelMatch(exactRequested, `${candidate.model || candidate.matchedModel || ""}`).matchType === "exact" : false;
+  const sourceRank = candidate.source === "company_price_list" ? 500 : 300-(priceSourcePriority(candidate.source)*10);
+  const matchRank = exactIdentity ? 2000 : candidate.matchType === "exact" ? 250 : 100;
   const compatibilityRank = candidate.compatibilityStatus === "incompatible" ? -10000 : candidate.compatibilityStatus === "compatible" ? 40 : 0;
   const pricedRank = Number(candidate.unitPrice) > 0 ? 50 : 0;
   return sourceRank + matchRank + compatibilityRank + pricedRank + Number(candidate.matchScore ?? match.matchScore ?? 0);
+}
+
+function minimumCandidateMatch(requirement) {
+  const category = canonicalComponentCategory(requirement);
+  if (isCompleteProductSearchItem(requirement)) return 85;
+  return ({ CPU:80, MAINBOARD:80, VGA:85, "운영체제(O/S)":80, "CPU 쿨러":70, RAM:70, "M.2":70, HDD:70, POWER:75, CASE:75 })[category] ?? 70;
+}
+
+function purchasableModel(value) {
+  const text = clean(value);
+  return Boolean(text) && !/규격\s*후보|호환\s*모델\s*확인|모델\s*미확정|검색\s*후보|적합\s*제품\s*미확정/i.test(text);
+}
+
+function candidatePassesSelectionGate(requirement, candidate) {
+  const model = candidate.model || candidate.matchedModel;
+  if (!purchasableModel(model) || candidate.compatibilityStatus === "incompatible") return false;
+  const exact = candidate.matchType === "exact" || scoreModelMatch(requirement.specifiedModel || requirement.searchProfile?.exactModel || "", model).matchType === "exact";
+  const score = Number(candidate.matchScore ?? scoreModelMatch(requirement.condition, `${model} ${candidate.specification || ""}`).matchScore ?? 0);
+  if (!exact && score < minimumCandidateMatch(requirement)) return false;
+  if (isCompleteProductSearchItem(requirement)) return true;
+  const category = canonicalComponentCategory(requirement);
+  const dependent = new Set(["MAINBOARD", "CPU 쿨러", "RAM", "M.2", "HDD", "VGA", "POWER", "CASE"]);
+  return !dependent.has(category) || candidate.compatibilityStatus === "compatible" || exact;
 }
 
 function selectCandidate(requirement, candidates) {
@@ -315,7 +340,7 @@ function selectCandidate(requirement, candidates) {
   return candidates
     .filter((candidate) => candidateRequirementId(candidate) === requirement.id)
     .filter((candidate) => completeProduct ? Boolean(clean(candidate.model || candidate.matchedModel)) : Number(candidate.unitPrice) > 0)
-    .filter((candidate) => candidate.compatibilityStatus !== "incompatible")
+    .filter((candidate) => candidatePassesSelectionGate(requirement, candidate))
     .sort((left, right) => candidateScore(requirement, right) - candidateScore(requirement, left))[0] || null;
 }
 
@@ -359,6 +384,9 @@ function auditConfiguration(configuration, sourceRequirements) {
   for (const item of configuration.filter((value) => value.unitPrice == null)) {
     issues.push({ severity: "blocking", code: "PRICE_UNKNOWN", group: item.specificationGroup || "공통 품목", category: item.category, message: `${item.specificationGroup || "공통 품목"} ${item.category}: 단가를 확인하지 못했습니다.` });
   }
+  for (const item of configuration.filter((value) => value.bundledUnitPrice == null && !purchasableModel(value.selectedModel))) {
+    issues.push({ severity:"blocking", code:"MODEL_UNKNOWN", group:item.specificationGroup || "공통 품목", category:item.category, message:`${item.specificationGroup || "공통 품목"} ${item.category}: 실제 구매 가능한 제조사·모델을 확정하지 못했습니다.` });
+  }
   for (const item of configuration.filter((value) => value.selectedModel && value.compatibilityStatus === "review")) {
     issues.push({ severity: "warning", code: "COMPATIBILITY_REVIEW", group: item.specificationGroup || "공통 품목", category: item.category, message: `${item.specificationGroup || "공통 품목"} ${item.category}: ${item.compatibilityNotes?.join(", ") || "선행 부품과의 호환성을 확인해야 합니다."}` });
   }
@@ -375,7 +403,7 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
     const completeProduct = isCompleteProductSearchItem(requirement);
     const isBundled = requirement.bundledUnitPrice != null;
     const candidate = requirement.priceSearchAllowed === false ? null : selectCandidate(requirement, priceCandidates);
-    const selectedModel = candidate?.model || candidate?.matchedModel || requirement.specifiedModel || (completeProduct ? "적합 완제품 모델 미확정" : requirement.selectionLabel || null);
+    const selectedModel = candidate?.model || candidate?.matchedModel || requirement.specifiedModel || null;
     const manualSearch = (!candidate && !isBundled)
       ? buildExternalSearches({ category:requirement.category, model:requirement.specifiedModel || requirement.condition || requirement.evidence || "", productSearchMode:requirement.productSearchMode })[0]
       : null;
@@ -419,17 +447,21 @@ export function buildVerifiedQuotePlan(extraction = {}, priceCandidates = []) {
       completeProductType: requirement.completeProductType || null,
       componentRequirementIds: requirement.componentRequirementIds || [],
       derivedFromCompatibility: Boolean(requirement.derivedFromCompatibility),
+      bundledUnitPrice: requirement.bundledUnitPrice,
       compatibilityStatus: candidate?.compatibilityStatus || null,
       compatibilityNotes: candidate?.compatibilityNotes || [],
     };
   });
   const audit = auditConfiguration(configuration, sourceRequirements);
+  const blockingIssueCount = audit.filter((item) => item.severity === "blocking").length;
+  const warningIssueCount = audit.filter((item) => item.severity !== "blocking").length;
   return {
     schemaVersion: "2.2",
     generatedAt: new Date().toISOString(),
     configuration,
     audit,
-    blockingIssueCount: audit.filter((item) => item.severity === "blocking").length,
-    warningIssueCount: audit.filter((item) => item.severity !== "blocking").length,
+    quoteStatus:blockingIssueCount ? "draft" : warningIssueCount ? "review" : "ready",
+    blockingIssueCount,
+    warningIssueCount,
   };
 }

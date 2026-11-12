@@ -43,7 +43,13 @@ const categoryMappings = [
 ];
 
 export function canonicalComponentCategory(item = {}) {
-  if (isCompleteProductSearchItem(item)) return item.completeProductType === "laptop" ? "노트북 완제품" : "서버 완제품";
+  if (isCompleteProductSearchItem(item)) return ({
+    laptop:"노트북 완제품",
+    server:"서버 완제품",
+    workstation:"워크스테이션 완제품",
+    monitor:"모니터 완제품",
+    desktop:"데스크톱 완제품",
+  })[item.completeProductType] || "완제품";
   const categoryText = String(item.category || "");
   const text = `${categoryText} ${item.requirement || item.condition || ""}`;
   const byCategoryText = categoryMappings.find(([, pattern]) => pattern.test(categoryText))?.[0];

@@ -8,7 +8,7 @@ const extraction={budget:1100000,uncertainties:["확인 필요"]};
 const report={decision:"조건부 참가",summary:"단가 확인 필요",qualificationReview:["소기업"],risks:["가격 미확인"],checklist:["단가표 확인"],configuration:[{category:"데스크탑 컴퓨터 본체 사양 1",requirement:"완제품",selectedModel:"완제품 모델",unitPrice:3000000,quantity:4,source:"상품 링크",status:"제외",specificationGroup:"본체사양 1",unitQuantity:1,systemQuantity:4,priceRole:"complete_system"},{category:"CPU 사양 1",requirement:"Ultra 7",selectedModel:"265K",unitPrice:100000,quantity:4,source:"company_price_list",status:"확인",specificationGroup:"본체사양 1",unitQuantity:1,systemQuantity:4,priceRole:"component"},{category:"메모리 사양 1",requirement:"DDR5 32GB",selectedModel:"DDR5",unitPrice:50000,quantity:8,source:"company_price_list",status:"확인",specificationGroup:"본체사양 1",unitQuantity:2,systemQuantity:4,priceRole:"component"},{category:"CPU 사양 2",requirement:"Ultra 5",selectedModel:"225",unitPrice:80000,quantity:5,source:"company_price_list",status:"확인",specificationGroup:"본체사양 2",unitQuantity:1,systemQuantity:5,priceRole:"component"}]};
 
 test("참가 판단 대시보드는 안전한 HTML과 핵심 정보를 만든다",()=>{const html=reportToDashboardHtml(notice,report,extraction);assert.match(html,/입찰참가판단/);assert.match(html,/조건부 참가/);assert.match(html,/PC &lt;구매&gt;/);});
-test("견적서는 사양별 부품 시트와 통합 합계를 만든다",async()=>{const buffer=await quoteWorkbookBuffer(notice,report,extraction,12);const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(buffer);assert.deepEqual(workbook.worksheets.map(s=>s.name),["통합견적","본체사양 1","본체사양 2","검토사항"]);const detail=workbook.getWorksheet("본체사양 1");assert.equal(detail.getCell("A10").value,"CASE");assert.equal(detail.getCell("E10").value,null);assert.equal(detail.getCell("A12").value,"CPU");assert.equal(detail.getCell("E14").value,2);assert.equal(detail.getCell("F30").formula,'IF(COUNT(F10:F29)=0,"",SUM(F10:F29))');assert.equal(detail.getCell("F31").formula,'IF(OR(F30="",E4="",F34>0),"",F30*E4)');const summary=workbook.getWorksheet("통합견적");assert.equal(summary.getCell("A10").value,"본체사양 1");assert.equal(summary.getCell("C10").formula,"'본체사양 1'!F30");assert.equal(summary.getCell("A11").value,"본체사양 2");assert.match(summary.getCell("E13").formula,/SUM\(H10:H11\)=0/);assert.doesNotMatch(JSON.stringify(workbook.model),/완제품 모델/);});
+test("견적서는 사양별 부품 시트와 통합 합계를 만들고 미확인 필수품목이 있으면 부분 원가를 차단한다",async()=>{const buffer=await quoteWorkbookBuffer(notice,report,extraction,12);const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(buffer);assert.deepEqual(workbook.worksheets.map(s=>s.name),["통합견적","본체사양 1","본체사양 2","검토사항"]);const detail=workbook.getWorksheet("본체사양 1");assert.equal(detail.getCell("A10").value,"CASE");assert.equal(detail.getCell("E10").value,null);assert.equal(detail.getCell("A12").value,"CPU");assert.equal(detail.getCell("E14").value,2);const subtotalRow=detail.getColumn(1).values.findIndex((value)=>String(value||"").startsWith("1대당 원가"));const missingRow=detail.getColumn(1).values.findIndex((value)=>String(value||"").startsWith("미확인 필수"));assert.ok(subtotalRow>0&&missingRow>subtotalRow);assert.match(detail.getCell(subtotalRow,6).formula,new RegExp(`IF\\(F${missingRow}>0`));const summary=workbook.getWorksheet("통합견적");assert.equal(summary.getCell("A10").value,"본체사양 1");assert.equal(summary.getCell("C10").formula,`'본체사양 1'!F${subtotalRow}`);assert.equal(summary.getCell("A11").value,"본체사양 2");assert.match(summary.getCell("E13").formula,/SUM\(H10:H11\)=0/);assert.doesNotMatch(JSON.stringify(workbook.model),/완제품 모델/);});
 
 test("GPU 서버 베어본처럼 CASE 행이 완제품 성격이어도 선정모델을 지우지 않는다",async()=>{
   const bareboneReport={...report,configuration:[
@@ -54,6 +54,19 @@ test("노트북 완제품은 부품 빈 행 없이 판매 모델 한 행으로 �
   assert.equal(detail.getCell("A10").value,"노트북 완제품");
   assert.equal(detail.getCell("C10").value,"ASUS ROG Strix G16");
   assert.equal(detail.getCell("D10").value,3290000);
-  assert.equal(detail.getCell("A11").value,"1대당 확인 원가");
+  assert.equal(detail.getCell("A11").value,"1대당 원가");
   assert.equal(workbook.getWorksheet("통합견적").getCell("B10").value,"완제품 모델 1종");
+});
+
+test("요구되지 않은 HDD·VGA·운영체제 빈 행은 조립 견적서에 만들지 않는다",async()=>{
+  const cpuOnly={...report,configuration:[
+    {category:"CPU",requirement:"Ultra 5 225",selectedModel:"Intel Core Ultra 5 225",unitPrice:300000,quantity:2,source:"company_price_list",status:"확인",specificationGroup:"본체사양 1",unitQuantity:1,systemQuantity:2,priceRole:"component"},
+  ]};
+  const buffer=await quoteWorkbookBuffer(notice,cpuOnly,extraction,12);
+  const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(buffer);
+  const detail=workbook.getWorksheet("본체사양 1");
+  const categories=detail.getColumn(1).values.map(String);
+  assert.ok(!categories.includes("HDD"));
+  assert.ok(!categories.includes("VGA"));
+  assert.ok(!categories.includes("운영체제(O/S)"));
 });

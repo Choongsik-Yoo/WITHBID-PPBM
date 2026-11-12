@@ -134,3 +134,27 @@ test("GPU 서버 문장형 사양을 정밀화하면 정확 모델·복수 SSD·
   assert.ok(!plan.configuration.some((item)=>item.requirement.includes("결과 보고서")));
   assert.ok(!plan.configuration.some((item)=>item.priceRole==="service"));
 });
+
+test("조립 데스크톱의 누락 부품은 서버용이 아닌 TOWER 호환 구성으로 만든다",()=>{
+  const base={title:"데스크톱 컴퓨터 구매",requirements:[
+    requirement({id:"CPU",category:"CPU",condition:"Intel Core Ultra 7 265",specifiedModel:"Intel Core Ultra 7 265",specificationGroup:"computer",unitQuantity:1,quantity:53,systemQuantity:53}),
+    requirement({id:"RAM",category:"RAM",condition:"DDR5 16GB",specificationGroup:"computer",unitQuantity:1,quantity:53,systemQuantity:53}),
+    requirement({id:"GPU",category:"VGA",condition:"RTX 5060 8GB",specificationGroup:"computer",unitQuantity:1,quantity:53,systemQuantity:53}),
+  ]};
+  const completed=completeCompatibilityRequirements(base);
+  const mainboard=completed.requirements.find((item)=>item.category==="MAINBOARD");
+  const pcCase=completed.requirements.find((item)=>item.category==="CASE");
+  assert.doesNotMatch(mainboard.condition,/서버용/);
+  assert.match(mainboard.condition,/조립 PC용/);
+  assert.match(pcCase.condition,/TOWER형/);
+  assert.match(pcCase.condition,/ATX·E-ATX/);
+});
+
+test("키보드와 마우스가 한 문장에 있으면 독립 구매행으로 분리한다",()=>{
+  const extraction=refineExtractedRequirements({requirements:[requirement({
+    id:"PERIPHERAL",category:"peripheral",condition:"USB 유선 키보드 및 마우스를 포함해야 함",evidence:"USB 유선 키보드 및 마우스를 포함해야 함",priceRole:"peripheral",unitQuantity:1,quantity:10,systemQuantity:10,
+  })]});
+  assert.deepEqual(extraction.requirements.map((item)=>item.category),["K/B(OEM)","MOUSE(OEM)"]);
+  assert.match(extraction.requirements[0].condition,/키보드/);
+  assert.match(extraction.requirements[1].condition,/마우스/);
+});

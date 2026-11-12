@@ -43,6 +43,7 @@ const componentTemplate = [
   ["납품설치비", { requirement:"납품설치비", model:"납품설치비", unitPrice:30000, quantity:1 }],
 ];
 const requiredComputerCategories = new Set(["CASE", "MAINBOARD", "CPU", "CPU 쿨러", "RAM", "M.2", "POWER"]);
+const optionalOnlyWhenRequested = new Set(["HDD", "VGA", "운영체제(O/S)"]);
 
 function makeRows(group) {
   const hasCompleteProduct = group.items.some(isCompleteProductSearchItem);
@@ -72,6 +73,7 @@ function makeRows(group) {
     const defaults = originalDefaults;
     const matches = group.items.map((item, index) => ({ item, index })).filter(({ item, index }) => !used.has(index) && item.category === category);
     if (!matches.length) {
+      if (optionalOnlyWhenRequested.has(category)) continue;
       rows.push(rowFor(category, defaults, null));
       continue;
     }
@@ -121,7 +123,10 @@ export async function quoteWorkbookBuffer(notice, report, extraction = {}, targe
 
   const summary = workbook.addWorksheet("통합견적", { views:[{showGridLines:false,state:"frozen",ySplit:9}] });
   summary.columns=[{width:20},{width:42},{width:18},{width:13},{width:18},{width:17},{width:18},{width:15}];
-  styleTitle(summary, "사양별 통합 견적서"); addMetadata(summary, notice, extraction, targetMargin);
+  const quoteStatus = report.quoteStatus || (report.quoteAudit?.some((item) => item.severity === "blocking") ? "draft" : "ready");
+  const quoteStatusLabel = quoteStatus === "ready" ? "견적 완료" : quoteStatus === "review" ? "검토 필요" : "견적 초안 · 필수항목 미확인";
+  styleTitle(summary, quoteStatus === "ready" ? "사양별 통합 견적서" : "사양별 통합 견적 초안"); addMetadata(summary, notice, extraction, targetMargin);
+  summary.getCell("A8").value="견적 상태"; summary.getCell("A8").font={bold:true,color:{argb:"FF385448"}}; summary.getCell("B8").value=quoteStatusLabel; summary.getCell("B8").font={bold:true,color:{argb:quoteStatus === "ready" ? "FF0C694C" : "FFB33A2B"}};
   summary.getRow(9).values=["사양 그룹","구성 설명","1대당 원가","납품수량","공급가액","부가세","합계","미확인 단가"];
   styleHeader(summary.getRow(9));
 
@@ -131,20 +136,21 @@ export async function quoteWorkbookBuffer(notice, report, extraction = {}, targe
     const hasCompleteProduct = group.items.some(isCompleteProductSearchItem);
     const sheet = workbook.addWorksheet(sheetName, { views:[{showGridLines:false,state:"frozen",ySplit:9}] });
     sheet.columns=[{width:18},{width:42},{width:38},{width:15},{width:12},{width:18},{width:20},{width:28}];
-    styleTitle(sheet, `${group.name} ${hasCompleteProduct ? "완제품" : "부품 구성"} 견적`); addMetadata(sheet, notice, extraction, targetMargin, group);
+    styleTitle(sheet, `${group.name} ${hasCompleteProduct ? "완제품" : "부품 구성"} ${quoteStatus === "ready" ? "견적" : "견적 초안"}`); addMetadata(sheet, notice, extraction, targetMargin, group);
+    sheet.getCell("A8").value="견적 상태"; sheet.getCell("A8").font={bold:true,color:{argb:"FF385448"}}; sheet.getCell("B8").value=quoteStatusLabel; sheet.getCell("B8").font={bold:true,color:{argb:quoteStatus === "ready" ? "FF0C694C" : "FFB33A2B"}};
     sheet.getCell("B6").numFmt="0.0%"; sheet.getCell("E6").numFmt=moneyFormat;
     sheet.getRow(9).values=["구분","요구사양","선정모델",hasCompleteProduct ? "완제품 단가" : "부품단가","1대당 수량","1대당 금액","가격 출처","매칭 상태"];
     styleHeader(sheet.getRow(9));
     const start=10;
-    rows.forEach((item,index)=>{const r=start+index;const isLink=/^https:\/\//i.test(item.source||"");const linkLabel=/\/search/i.test(item.source||"")?"검색 링크":"상품 링크";sheet.getRow(r).values=[item.category,item.requirement,item.selectedModel,item.unitPrice,item.unitQuantity,{formula:`IF(OR(D${r}="",E${r}=""),"",D${r}*E${r})`},isLink?{text:linkLabel,hyperlink:item.source}:item.source,item.status];sheet.getRow(r).height=34;sheet.getRow(r).alignment={vertical:"middle",wrapText:true};if(isLink)sheet.getCell(r,7).font={color:{argb:"FF0563C1"},underline:true};});
+    rows.forEach((item,index)=>{const r=start+index;const isLink=/^https:\/\//i.test(item.source||"");const linkLabel=/\/search/i.test(item.source||"")?"검색 링크":"상품 링크";sheet.getRow(r).values=[item.category,item.requirement,item.selectedModel,item.unitPrice,item.unitQuantity,{formula:`IF(OR(C${r}="",D${r}="",E${r}=""),"",D${r}*E${r})`},isLink?{text:linkLabel,hyperlink:item.source}:item.source,item.status];sheet.getRow(r).height=34;sheet.getRow(r).alignment={vertical:"middle",wrapText:true};if(isLink)sheet.getCell(r,7).font={color:{argb:"FF0563C1"},underline:true};});
     const end=start+rows.length-1; const subtotal=end+1; const groupTotal=subtotal+1; const vat=groupTotal+1; const grand=vat+1; const missing=grand+1;
-    sheet.mergeCells(subtotal,1,subtotal,5); sheet.getCell(subtotal,1).value="1대당 확인 원가"; sheet.getCell(subtotal,6).value={formula:`IF(COUNT(F${start}:F${end})=0,"",SUM(F${start}:F${end}))`};
+    sheet.mergeCells(subtotal,1,subtotal,5); sheet.getCell(subtotal,1).value=quoteStatus === "ready" ? "1대당 원가" : "1대당 원가 (필수항목 확인 후 계산)"; sheet.getCell(subtotal,6).value={formula:`IF(F${missing}>0,"",IF(COUNT(F${start}:F${end})=0,"",SUM(F${start}:F${end})))`};
     sheet.mergeCells(groupTotal,1,groupTotal,5); sheet.getCell(groupTotal,1).value=`공급가액 (${group.systemQuantity ?? "수량 확인 필요"}대)`; sheet.getCell(groupTotal,6).value={formula:`IF(OR(F${subtotal}="",E4="",F${missing}>0),"",F${subtotal}*E4)`};
     sheet.mergeCells(vat,1,vat,5); sheet.getCell(vat,1).value="부가세"; sheet.getCell(vat,6).value={formula:`IF(F${groupTotal}="","",F${groupTotal}*10%)`};
     sheet.mergeCells(grand,1,grand,5); sheet.getCell(grand,1).value="사양별 확인 합계"; sheet.getCell(grand,6).value={formula:`IF(OR(F${groupTotal}="",F${vat}=""),"",F${groupTotal}+F${vat})`};
-    const missingFormula=rows.map((item,index)=>(item.requirement || requiredComputerCategories.has(item.category))?`IF(OR(B${start+index}="",D${start+index}="",E${start+index}=""),1,0)`:null).filter(Boolean).join("+")||"0";
-    sheet.getCell(missing,1).value="미확인 단가/수량"; sheet.getCell(missing,6).value={formula:missingFormula};
-    for(let r=start;r<=end;r++){sheet.getCell(r,4).numFmt=moneyFormat;sheet.getCell(r,5).numFmt="0.##";sheet.getCell(r,6).numFmt=moneyFormat;sheet.getCell(r,4).font={color:{argb:"FF0066CC"}};sheet.getCell(r,4).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFEAF3FF"}};for(let c=1;c<=8;c++)sheet.getCell(r,c).border={bottom:{style:"thin",color:{argb:"FFD9E0DB"}}};}
+    const missingFormula=rows.map((item,index)=>(item.requirement || requiredComputerCategories.has(item.category))?`IF(OR(B${start+index}="",C${start+index}="",D${start+index}="",E${start+index}=""),1,0)`:null).filter(Boolean).join("+")||"0";
+    sheet.getCell(missing,1).value="미확인 필수 모델/단가/수량"; sheet.getCell(missing,6).value={formula:missingFormula};
+    for(let r=start;r<=end;r++){sheet.getCell(r,4).numFmt=moneyFormat;sheet.getCell(r,5).numFmt="0.##";sheet.getCell(r,6).numFmt=moneyFormat;sheet.getCell(r,4).font={color:{argb:"FF0066CC"}};sheet.getCell(r,4).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFEAF3FF"}};const unresolved=(sheet.getCell(r,2).value||requiredComputerCategories.has(sheet.getCell(r,1).value))&&(!sheet.getCell(r,3).value||sheet.getCell(r,4).value==null||sheet.getCell(r,5).value==null);if(unresolved)for(let c=1;c<=8;c++){sheet.getCell(r,c).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFCE8E6"}};sheet.getCell(r,c).font={...(sheet.getCell(r,c).font||{}),color:{argb:"FFB33A2B"}};}for(let c=1;c<=8;c++)sheet.getCell(r,c).border={bottom:{style:"thin",color:{argb:"FFD9E0DB"}}};}
     for(let r=subtotal;r<=grand+1;r++){sheet.getCell(r,1).font={bold:true};sheet.getCell(r,6).font={bold:true};sheet.getCell(r,1).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF0F3EF"}};sheet.getCell(r,6).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFF4D6"}};sheet.getCell(r,6).numFmt=r===grand+1?"0":moneyFormat;}
     sheet.autoFilter={from:{row:9,column:1},to:{row:end,column:8}}; sheet.pageSetup={orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0};
     detailRefs.push({ group, sheetName, subtotal, groupTotal, vat, grand, missing });

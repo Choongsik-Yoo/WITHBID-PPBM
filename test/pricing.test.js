@@ -55,10 +55,28 @@ test("선행 부품과 소켓·메모리·전력 규격이 충돌하는 후보�
   assert.deepEqual(rankCompanyPrices(items,{requirement:{category:"RAM"},category:"RAM",model:"32GB",compatibilityContext:context}),[]);
 });
 
+test("케이스는 선정 GPU 길이와 CPU 쿨러 높이를 모두 수용해야 한다",()=>{
+  const context=buildCompatibilityContext([
+    {requirement:{category:"MAINBOARD"},model:"E-ATX 메인보드"},
+    {requirement:{category:"VGA"},model:"RTX GPU 길이 330mm 권장 파워 750W"},
+    {requirement:{category:"CPU 쿨러"},model:"공랭 쿨러 높이 165mm"},
+  ],"본체사양 1");
+  assert.equal(evaluateCandidateCompatibility({category:"CASE"},{model:"ATX 케이스 그래픽카드 최대 300mm CPU 쿨러 최대 160mm"},context).compatibilityStatus,"incompatible");
+  assert.equal(evaluateCandidateCompatibility({category:"CASE"},{model:"E-ATX TOWER 그래픽카드 최대 400mm CPU 쿨러 최대 180mm"},context).compatibilityStatus,"compatible");
+});
+
+test("기본 조립 케이스는 E-ATX 요구를 충족하고 파워는 요구 효율등급 이상이어야 한다",()=>{
+  assert.equal(evaluateCandidateCompatibility({category:"CASE",condition:"TOWER형 ATX·E-ATX 지원"},{model:"ATX 미들타워 케이스"},{}).compatibilityStatus,"incompatible");
+  assert.equal(evaluateCandidateCompatibility({category:"CASE",condition:"TOWER형 ATX·E-ATX 지원"},{model:"E-ATX 빅타워 케이스"},{}).compatibilityStatus,"compatible");
+  assert.equal(evaluateCandidateCompatibility({category:"POWER",condition:"80PLUS GOLD 이상"},{model:"850W 80PLUS PLATINUM"},{}).compatibilityStatus,"compatible");
+  assert.equal(evaluateCandidateCompatibility({category:"POWER",condition:"80PLUS GOLD 이상"},{model:"850W 80PLUS BRONZE"},{}).compatibilityStatus,"incompatible");
+});
+
 test("부품명에서 핵심 검색 키워드를 추출한다",()=>{
   assert.deepEqual(coreModelKeywords("[Colorful] 지포스 RTX 5060 GAMING DUO D7 8GB 피씨디렉트"),["RTX5060","D7","8GB"]);
   assert.deepEqual(coreModelKeywords("마이크로닉스 Classic II 850W 80PLUS GOLD"),["850W","80PLUS","GOLD"]);
   assert.deepEqual(coreModelKeywords("[PATRIOT] DDR5 PC5-48000 CL30 [16GB] (6000)"),["DDR5-48000","16GB"]);
+  assert.deepEqual(coreModelKeywords("DDR5-5600MHz 32GB ECC PCIe Gen4"),["DDR5-5600","32GB","PCIE4","ECC"]);
 });
 
 test("동일 모델이 아니어도 핵심 키워드 일치율을 계산한다",()=>{

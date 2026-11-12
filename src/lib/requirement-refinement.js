@@ -132,6 +132,21 @@ function splitCompoundStorage(requirement) {
   });
 }
 
+function splitKeyboardAndMouse(requirement) {
+  const text = clean(`${requirement.condition || ""} ${requirement.evidence || ""}`);
+  if (!/키보드|KEYBOARD|K\/B/i.test(text) || !/(?:마우스|MOUSE)(?!\s*PAD|\s*패드)/i.test(text)) return [requirement];
+  const interfaceLabel = /무선|WIRELESS|BLUETOOTH|블루투스/i.test(text) ? "무선" : /USB/i.test(text) ? "USB 유선" : /유선/i.test(text) ? "유선" : "";
+  const build = (category, label, suffix) => ({
+    ...requirement,
+    id:`${requirement.id || "REQ-PERIPHERAL"}-${suffix}`,
+    category,
+    condition:clean(`${interfaceLabel} ${label} ${/포함|제공/i.test(text) ? "포함" : ""}`),
+    searchKeywords:unique([...(requirement.searchKeywords || []), interfaceLabel, label]),
+    refinementNote:`키보드·마우스 복합 요구를 ${label} 독립 구매행으로 분리`,
+  });
+  return [build("K/B(OEM)", "키보드", "KB"), build("MOUSE(OEM)", "마우스", "MOUSE")];
+}
+
 function searchProfile(requirement) {
   const category = canonicalComponentCategory(requirement);
   const exactModel = specifiedModel(requirement);
@@ -167,14 +182,16 @@ export function refineExtractedRequirements(extraction = {}) {
   for (const raw of extraction.requirements || []) {
     const classification = semanticClassification(raw);
     const requirement = { ...raw, ...classification };
-    for (const split of splitCompoundStorage(requirement)) {
-      const model = specifiedModel(split);
-      refined.push({
-        ...split,
-        specifiedModel:model,
-        searchProfile:searchProfile(split),
-        selectionLabel:selectionLabel(split),
-      });
+    for (const peripheral of splitKeyboardAndMouse(requirement)) {
+      for (const split of splitCompoundStorage(peripheral)) {
+        const model = specifiedModel(split);
+        refined.push({
+          ...split,
+          specifiedModel:model,
+          searchProfile:searchProfile(split),
+          selectionLabel:selectionLabel(split),
+        });
+      }
     }
   }
   return { ...extraction, requirements:refined };
@@ -193,16 +210,28 @@ function extractWattConstraint(item) {
   return match ? `${match[1]}W` : null;
 }
 
-function derivedCondition(category, items) {
+function equipmentProfile(group, items) {
+  const text = clean(`${group || ""} ${items.map((item) => `${item.category || ""} ${item.condition || ""}`).join(" ")}`);
+  if (/워크스테이션|WORKSTATION/i.test(text)) return "workstation";
+  if (/서버|SERVER|랙\s*마운트|RACK\s*MOUNT/i.test(text)) return "server";
+  return "desktop";
+}
+
+function derivedCondition(category, items, group) {
   const get = (wanted) => items.find((item) => !["complete_system", "non_price"].includes(item.priceRole) && canonicalComponentCategory(item) === wanted);
   const cpu = get("CPU");
   const ram = get("RAM");
   const vga = get("VGA");
   const board = get("MAINBOARD");
+  const profile = equipmentProfile(group, items);
+  const systemLabel = profile === "server" ? "서버" : profile === "workstation" ? "워크스테이션" : "조립 PC";
   const ramKeywords = (ram?.searchProfile?.requiredKeywords || coreModelKeywords(ram?.condition || "")).slice(0, 5).join(" ");
-  if (category === "MAINBOARD") return clean(`서버용 메인보드, CPU ${cpu?.specifiedModel || cpu?.condition || "요구 CPU"} 호환, ${ramKeywords ? `${ramKeywords} 메모리 지원,` : ""} ${vga?.unitQuantity ? `GPU ${vga.unitQuantity}개 장착 지원` : "GPU 장착 지원"}`);
-  if (category === "CPU 쿨러") return clean(`서버용 CPU 쿨러, CPU ${cpu?.specifiedModel || cpu?.condition || "요구 CPU"} 소켓 및 TDP 호환`);
-  if (category === "CASE") return clean(`서버 섀시, ${board?.condition ? `메인보드 ${board.condition} 장착,` : ""} ${vga?.unitQuantity ? `GPU ${vga.unitQuantity}개 장착 지원` : "GPU 장착 지원"}`);
+  if (category === "MAINBOARD") return clean(`${systemLabel}용 메인보드, CPU ${cpu?.specifiedModel || cpu?.condition || "요구 CPU"}의 소켓·세대·BIOS 호환, ${ramKeywords ? `${ramKeywords} 메모리 지원,` : ""} ${vga?.unitQuantity ? `GPU ${vga.unitQuantity}개 장착 지원` : "필요한 확장슬롯 지원"}`);
+  if (category === "CPU 쿨러") return clean(`${systemLabel}용 CPU 쿨러, CPU ${cpu?.specifiedModel || cpu?.condition || "요구 CPU"}의 소켓·최대 소비전력 호환, 메모리 및 케이스 간섭 없음`);
+  if (category === "CASE") {
+    if (profile === "server") return clean(`서버 섀시, ${board?.condition ? `메인보드 ${board.condition} 장착,` : "메인보드 폼팩터 호환,"} ${vga?.unitQuantity ? `GPU ${vga.unitQuantity}개 장착 지원` : "GPU 장착 지원"}, 쿨러·전원공급장치·저장장치 장착 가능`);
+    return clean(`TOWER형 케이스, ATX·E-ATX 메인보드 장착 지원, ${board?.condition ? `선정 메인보드 장착 가능,` : ""} ${vga?.unitQuantity ? `GPU ${vga.unitQuantity}개 길이·두께 수용,` : "GPU 장착 공간 확보,"} CPU 쿨러·전원공급장치·저장장치 장착 가능`);
+  }
   if (category === "POWER") {
     const cpuWatt = extractWattConstraint(cpu);
     const vgaWatt = extractWattConstraint(vga);
@@ -211,10 +240,10 @@ function derivedCondition(category, items) {
     const wattageNote = (cpuWatt || vgaWatt)
       ? `(CPU ${cpuWatt || "TDP 확인 필요"} + GPU ${vgaWatt || "TDP 확인 필요"} 기준 소비전력 계산 후 충분한 정격 출력 선정)`
       : "(W수 미명시 — CPU·GPU 등 구성품 소비전력을 조사해 계산 후 충분한 정격 출력 선정)";
-    return clean(`전원공급장치, CPU ${cpuLabel} 및 VGA ${vgaLabel} 구성의 정격 출력·보조전원 충족 ${wattageNote}`);
+    return clean(`전원공급장치, CPU ${cpuLabel} 및 VGA ${vgaLabel} 구성의 최대 소비전력 합계에 25~30% 여유 적용, 정격 출력·효율등급·CPU/GPU 보조전원 충족 ${wattageNote}`);
   }
-  if (category === "RAM") return clean(`서버용 메모리, CPU ${cpu?.specifiedModel || cpu?.condition || "요구 CPU"} 및 메인보드 호환`);
-  if (category === "M.2") return "서버용 운영체제 저장장치, 메인보드 인터페이스 호환";
+  if (category === "RAM") return clean(`${systemLabel}용 메모리, CPU ${cpu?.specifiedModel || cpu?.condition || "요구 CPU"} 및 메인보드의 DDR 세대·ECC·DIMM 규격·속도·슬롯 호환`);
+  if (category === "M.2") return `${systemLabel}용 기본 SSD, 선정 메인보드의 M.2/U.2/SATA 인터페이스·PCIe 세대·장착 규격 호환`;
   return `${category} 호환 구성품`;
 }
 
@@ -246,7 +275,9 @@ export function completeCompatibilityRequirements(extraction = {}) {
     if (items.some((item) => item.productSearchMode === "complete_product")) continue;
     const categories = new Set(items.filter((item) => !["complete_system", "non_price"].includes(item.priceRole) && HARDWARE_CATEGORIES.has(canonicalComponentCategory(item))).map(canonicalComponentCategory));
     const hardwareCount = categories.size;
-    const isComposableComputer = categories.has("CPU") && hardwareCount >= 3;
+    const groupIdentity = clean(`${group} ${extraction.title || ""}`);
+    const isComputerIdentity = /본체|컴퓨터|PC|데스크[탑톱]|워크스테이션|서버|COMPUTER|DESKTOP|WORKSTATION|SERVER/i.test(groupIdentity);
+    const isComposableComputer = categories.has("CPU") && (hardwareCount >= 3 || (isComputerIdentity && hardwareCount >= 2));
     if (!isComposableComputer) continue;
     const systemQuantity = groupSystemQuantity(items);
     // ASUS ESC8000 같은 GPU 서버 베어본은 메인보드·CPU 쿨러·전원공급장치가 섀시에 이미 포함되어 있다.
@@ -257,7 +288,7 @@ export function completeCompatibilityRequirements(extraction = {}) {
       const bundledIntoBarebone = Boolean(bareboneLabel) && BUNDLED_BY_BAREBONE.has(category);
       const condition = bundledIntoBarebone
         ? clean(`${category} (${bareboneLabel} 베어본에 포함되어 별도 구매 불필요)`)
-        : derivedCondition(category, items);
+        : derivedCondition(category, items, group);
       const unitQuantity = derivedUnitQuantity(category, items);
       const requirement = {
         id:`DERIVED-${String(added.length + 1).padStart(3, "0")}`,
