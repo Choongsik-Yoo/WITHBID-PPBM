@@ -159,9 +159,10 @@ $$('[data-go]').forEach((button) => button.addEventListener("click", () => showV
 
 $("#noticeForm").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
   try {
-    await api("/api/notices", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(formObject(event.currentTarget)) });
-    event.currentTarget.reset(); toast("공고 폴더를 만들었습니다."); showView("dashboard"); await refresh();
+    await api("/api/notices", { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(formObject(form)) });
+    form.reset(); toast("공고 폴더를 만들었습니다."); showView("dashboard"); await refresh();
   } catch (error) { toast(error.message, true); }
 });
 
@@ -294,7 +295,26 @@ $("#authBootstrapForm").addEventListener("submit",async(event)=>{
   }
 });
 $("#logoutButton").addEventListener("click",async()=>{await api("/api/auth/logout",{method:"POST"});location.reload();});
-$("#userForm").addEventListener("submit",async(event)=>{event.preventDefault();try{await api("/api/admin/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(formObject(event.currentTarget))});event.currentTarget.reset();await loadUsers();toast("사용자를 추가했습니다.");}catch(error){toast(error.message,true);}});
+$("#userForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    await api("/api/admin/users", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body:JSON.stringify(formObject(form)),
+    });
+    form.reset();
+    await loadUsers();
+    toast("사용자를 추가했습니다.");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
 $("#userList").addEventListener("click",async(event)=>{const button=event.target.closest("[data-delete-user]");if(!button)return;if(!confirm("이 사용자의 앱 접근 권한을 삭제할까요?"))return;try{await api(`/api/admin/users/${button.dataset.deleteUser}`,{method:"DELETE"});await loadUsers();toast("사용자 접근 권한을 삭제했습니다.");}catch(error){toast(error.message,true);}});
 
 initializeAuth();

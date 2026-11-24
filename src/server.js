@@ -177,7 +177,7 @@ const server = http.createServer(async (request, response) => {
     const publicAuthPaths = new Set(["/api/app-info", "/api/auth/config", "/api/auth/bootstrap", "/api/auth/google", "/api/auth/logout", "/api/auth/me"]);
 
     if (request.method === "GET" && url.pathname === "/api/app-info") {
-      return json(response, 200, { app: "WITHBID-PPBM", version: "0.10.0", versionDate:"2026-11-12", dataRoot: config.dataRoot, storageMode:config.storageMode, localAdminMode:config.localAdminMode, nasRoot:config.nasRoot });
+      return json(response, 200, { app: "WITHBID-PPBM", version: "0.10.1", versionDate:"2026-11-24", dataRoot: config.dataRoot, storageMode:config.storageMode, localAdminMode:config.localAdminMode, nasRoot:config.nasRoot });
     }
 
     if (request.method === "GET" && url.pathname === "/api/auth/config") {
